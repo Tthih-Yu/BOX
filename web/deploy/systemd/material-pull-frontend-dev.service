@@ -1,0 +1,21 @@
+[Unit]
+Description=Material Pull System Frontend (Dev)
+After=network-online.target material-pull-backend-dev.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=@RUN_USER@
+Group=@RUN_USER@
+WorkingDirectory=@PROJECT_ROOT@/frontend
+EnvironmentFile=-@PROJECT_ROOT@/deploy/scripts/material-pull.env
+Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+ExecStartPre=/bin/bash -c 'test -d @PROJECT_ROOT@/frontend/node_modules || /usr/bin/npm --prefix @PROJECT_ROOT@/frontend install'
+ExecStart=/usr/bin/npm --prefix @PROJECT_ROOT@/frontend run @FRONTEND_MODE@
+Restart=on-failure
+RestartSec=10
+StandardOutput=append:@LOG_DIR@/frontend.log
+StandardError=append:@LOG_DIR@/frontend.log
+
+[Install]
+WantedBy=multi-user.target
