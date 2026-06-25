@@ -1,0 +1,2 @@
+warehouseCode,barcodeValue,primaryScanValue,materialCode,materialName,warehouseMaterialCode,warehouseAddress,sendStationAddress,boxSize,standardQty,unit,delivererEmployeeNo,lineCode,stationCode,stationName,printDate,bindBox,boxSide,containerType,remark
+WH-001,WH-001,WH-001,13736195,捆绑卡钉,WH-001,D-19-D-1,KIT08-B08,小盒,100,PCS,E001,EOVA-FLOOR,KIT08-B08,KIT08-B08,2026-06-24,false,,,负责人确认后的真实标签样例

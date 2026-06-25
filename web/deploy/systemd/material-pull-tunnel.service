@@ -1,0 +1,19 @@
+[Unit]
+Description=Material Pull System SSH Public Tunnel
+After=network-online.target material-pull-backend-dev.service material-pull-frontend-dev.service nginx.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=@RUN_USER@
+Group=@RUN_USER@
+WorkingDirectory=@PROJECT_ROOT@
+EnvironmentFile=-@PROJECT_ROOT@/deploy/scripts/material-pull.env
+ExecStart=/bin/bash @PROJECT_ROOT@/deploy/scripts/keep-tunnel-alive.sh
+Restart=always
+RestartSec=10
+StandardOutput=append:@LOG_DIR@/tunnel.log
+StandardError=append:@LOG_DIR@/tunnel.log
+
+[Install]
+WantedBy=multi-user.target
