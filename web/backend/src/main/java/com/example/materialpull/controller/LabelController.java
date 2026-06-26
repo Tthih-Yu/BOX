@@ -9,6 +9,7 @@ import com.example.materialpull.repository.LabelScanRuleRepository;
 import com.example.materialpull.repository.LabelTemplateRepository;
 import com.example.materialpull.security.RequireRoles;
 import com.example.materialpull.service.LabelService;
+import com.example.materialpull.service.SiteQrLabelGenerateService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.data.domain.PageRequest;
@@ -21,6 +22,7 @@ import java.util.List;
 @RequiredArgsConstructor
 public class LabelController {
     private final LabelService labelService;
+    private final SiteQrLabelGenerateService siteQrLabelGenerateService;
     private final LabelTemplateRepository templateRepository;
     private final LabelScanRuleRepository ruleRepository;
     private final com.example.materialpull.service.CodeRenderService codeRenderService;
@@ -31,7 +33,7 @@ public class LabelController {
 
     @PostMapping("/generate")
     @RequireRoles({UserRole.ADMIN, UserRole.PLANNER, UserRole.WAREHOUSE})
-    public ApiResponse<List<LabelEntity>> generate(@RequestBody LabelDtos.GenerateRequest req) { return ApiResponse.ok(labelService.generate(req)); }
+    public ApiResponse<List<LabelEntity>> generate(@RequestBody LabelDtos.GenerateRequest req) { return ApiResponse.ok(siteQrLabelGenerateService.generate(req)); }
 
     @PostMapping("/site")
     @RequireRoles({UserRole.ADMIN, UserRole.PLANNER, UserRole.WAREHOUSE})
