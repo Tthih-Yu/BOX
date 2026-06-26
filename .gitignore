@@ -1,0 +1,36 @@
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.iml
+
+# Logs
+*.log
+logs/
+web/logs/
+
+# Java / Maven / Spring Boot
+**/target/
+**/.mvn/wrapper/maven-wrapper.jar
+web/.m2-repo/
+
+# Database / runtime data
+**/data/
+*.db
+*.mv.db
+*.trace.db
+
+# Node / Vite
+**/node_modules/
+**/dist/
+
+# Android / Gradle
+.gradle/
+**/.gradle/
+**/build/
+**/captures/
+**/.externalNativeBuild/
+**/.cxx/
+local.properties
+androidAPP/local.properties
