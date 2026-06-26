@@ -9,6 +9,7 @@ import com.example.materialpull.repository.ImportBatchRepository;
 import com.example.materialpull.repository.ImportErrorRepository;
 import com.example.materialpull.security.RequireRoles;
 import com.example.materialpull.service.ImportService;
+import com.example.materialpull.service.WmsMapImportService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.data.domain.PageRequest;
@@ -23,12 +24,15 @@ import java.util.List;
 @RequireRoles({UserRole.ADMIN, UserRole.PLANNER, UserRole.WAREHOUSE})
 public class ImportController {
     private final ImportService importService;
+    private final WmsMapImportService wmsMapImportService;
     private final ImportBatchRepository batchRepository;
     private final ImportErrorRepository errorRepository;
 
     @PostMapping("/{type}")
     public ApiResponse<ImportBatchEntity> upload(@PathVariable String type, @RequestParam MultipartFile file) throws Exception {
-        return ApiResponse.ok(importService.importExcel(type, file, OperatorResolver.currentOperator()));
+        String operator = OperatorResolver.currentOperator();
+        if ("warehouseMappings".equalsIgnoreCase(type)) return ApiResponse.ok(wmsMapImportService.importFile(file, operator));
+        return ApiResponse.ok(importService.importExcel(type, file, operator));
     }
 
     @GetMapping public ApiResponse<List<ImportBatchEntity>> batches() { return ApiResponse.ok(batchRepository.findAll(PageRequest.of(0, 1000, Sort.by(Sort.Direction.DESC, "id"))).getContent()); }
