@@ -68,12 +68,12 @@ public class LabelResolverService {
             String labels = list.stream().limit(5).map(LabelEntity::getLabelCode).toList().toString();
             throw new BusinessException(ErrorCode.DATA_DIRTY, "扫码值对应多张标签，禁止继续生成任务。请在标签中心处理重复码：" + code + "，命中=" + labels);
         }
-        return virtualSiteLabel(code).orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "未找到标签/二维码/仓库代码/看板卡：" + code + "。现场二维码需包含 materialCode 或 MAT 字段，或先在标签中心建档。"));
+        return virtualSiteLabel(code).orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "未找到标签/二维码/仓库代码/看板卡：" + code + "。现场二维码需包含 materialCode、MAT、物料号或料号字段，或先在标签中心建档。"));
     }
 
     private Optional<LabelEntity> virtualSiteLabel(String rawCode) {
         Map<String, String> fields = parseFields(rawCode);
-        String materialCode = firstNonBlank(fields.get("materialCode"), fields.get("MAT"), fields.get("MATERIAL"), rawCode.matches("\\d{6,}") ? rawCode : null);
+        String materialCode = firstNonBlank(fields.get("materialCode"), fields.get("MAT"), fields.get("MATERIAL"), fields.get("物料号"), fields.get("料号"), fields.get("物料编码"), rawCode.matches("\\d{6,}") ? rawCode : null);
         if (materialCode == null) return Optional.empty();
         List<MaterialMappingEntity> mappings = mappingRepository.findByLineMaterialCodeAndEnabledTrueOrderByIdAsc(materialCode);
         MaterialMappingEntity mapping = mappings.isEmpty() ? null : mappings.get(0);
@@ -86,14 +86,14 @@ public class LabelResolverService {
         label.setRawPayload(rawCode);
         label.setStatus(LabelStatus.BOUND);
         label.setMaterialCode(materialCode);
-        label.setMaterialName(firstNonBlank(fields.get("materialName"), fields.get("NAME"), materialCode));
+        label.setMaterialName(firstNonBlank(fields.get("materialName"), fields.get("NAME"), fields.get("物料名称"), fields.get("名称"), materialCode));
         label.setWarehouseMaterialCode(mapping == null ? materialCode : mapping.getWarehouseMaterialCode());
         label.setWarehouseCode(mapping == null ? null : mapping.getWarehouseCode());
         label.setBoxSize(mapping == null ? null : mapping.getBoxSize());
         label.setStandardQty(mapping == null ? java.math.BigDecimal.ONE : mapping.getStandardQty());
         label.setLabelUsageType(mapping == null ? "USE" : mapping.getLabelUsageType());
         label.setDeliveryMode(mapping == null ? "NORMAL" : mapping.getDeliveryMode());
-        label.setDeliveryAddress(firstNonBlank(fields.get("materialAddress"), fields.get("address"), fields.get("ADDR"), fields.get("station")));
+        label.setDeliveryAddress(firstNonBlank(fields.get("materialAddress"), fields.get("address"), fields.get("ADDR"), fields.get("station"), fields.get("物料地址"), fields.get("地址"), fields.get("工位地址")));
         label.setSendStationAddress(label.getDeliveryAddress());
         return Optional.of(labelRepository.save(label));
     }
@@ -120,7 +120,7 @@ public class LabelResolverService {
         try {
             JsonNode n = objectMapper.readTree(s);
             List<String> keys = new ArrayList<>();
-            for (String f : List.of("primaryScanValue", "code", "scanCode", "barcodeValue", "warehouseCode", "warehouse_code", "whCode", "wh_code", "kanbanCardNo", "labelCode", "qrCode", "materialCode")) {
+            for (String f : List.of("primaryScanValue", "code", "scanCode", "barcodeValue", "warehouseCode", "warehouse_code", "whCode", "wh_code", "kanbanCardNo", "labelCode", "qrCode", "materialCode", "物料号", "料号", "物料编码")) {
                 JsonNode v = n.get(f);
                 if (v != null && !v.isNull() && !v.asText().isBlank()) keys.add(v.asText().trim());
             }
@@ -140,8 +140,8 @@ public class LabelResolverService {
             } catch (Exception ignored) {}
         }
         if (code.contains("=") || code.contains(":")) {
-            for (String p : code.split("[;|,]")) {
-                String[] kv = p.split("[:=]", 2);
+            for (String p : code.split("[;|,，]") ) {
+                String[] kv = p.split("[:=：]", 2);
                 if (kv.length == 2) map.put(kv[0].trim(), kv[1].trim());
             }
         }
@@ -149,12 +149,12 @@ public class LabelResolverService {
     }
 
     private List<String> extractFromKeyValue(String code) {
-        if (!(code.contains("=") || code.contains(":"))) return List.of();
-        String[] parts = code.split("[;|,]");
+        if (!(code.contains("=") || code.contains(":") || code.contains("："))) return List.of();
+        String[] parts = code.split("[;|,，]");
         List<String> out = new ArrayList<>();
-        Set<String> aliases = Set.of("CODE","SCANCODE","SCAN_CODE","PRIMARY","PRIMARYSCANVALUE","BARCODE","BARCODEVALUE","WAREHOUSECODE","WHCODE","WH","WAREHOUSE","STORECODE","KANBAN","KANBANCARDNO","LABEL","LABELCODE","MAT","MATERIAL","MATERIALCODE");
+        Set<String> aliases = Set.of("CODE","SCANCODE","SCAN_CODE","PRIMARY","PRIMARYSCANVALUE","BARCODE","BARCODEVALUE","WAREHOUSECODE","WHCODE","WH","WAREHOUSE","STORECODE","KANBAN","KANBANCARDNO","LABEL","LABELCODE","MAT","MATERIAL","MATERIALCODE","物料号","料号","物料编码");
         for (String p : parts) {
-            String[] kv = p.split("[:=]", 2);
+            String[] kv = p.split("[:=：]", 2);
             if (kv.length != 2) continue;
             String k = kv[0].trim().replace("_", "").toUpperCase(Locale.ROOT);
             String v = kv[1].trim();
@@ -173,7 +173,7 @@ public class LabelResolverService {
                 case "EXACT" -> Objects.equals(code, pattern);
                 case "PREFIX" -> pattern != null && code.startsWith(pattern);
                 case "JSON" -> code.trim().startsWith("{") && code.trim().endsWith("}");
-                case "KEY_VALUE" -> code.contains("=") || code.contains(":");
+                case "KEY_VALUE" -> code.contains("=") || code.contains(":") || code.contains("：");
                 default -> pattern != null && Pattern.matches(pattern, code);
             };
             if (matched) {
