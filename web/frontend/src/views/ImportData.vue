@@ -8,6 +8,7 @@
           <el-radio-group v-model="type">
             <el-radio-button value="materials">物料主数据</el-radio-button>
             <el-radio-button value="mappings">料号映射</el-radio-button>
+            <el-radio-button value="warehouseMappings">仓库标签映射</el-radio-button>
             <el-radio-button value="stationMaterials">工位用料</el-radio-button>
             <el-radio-button value="factoryLabels">真实工厂标签</el-radio-button>
             <el-radio-button value="siteLabels">旧看板卡标签</el-radio-button>
@@ -52,7 +53,7 @@
 import { onMounted, ref } from 'vue'
 import { get, post, tagType } from '../api'
 import { ElMessage } from 'element-plus'
-const type=ref('materials'), file=ref<any>(null), batches=ref<any[]>([]), errors=ref<any[]>([]), errDialog=ref(false)
+const type=ref('warehouseMappings'), file=ref<any>(null), batches=ref<any[]>([]), errors=ref<any[]>([]), errDialog=ref(false)
 function onChange(f:any){ file.value=f.raw }
 async function upload(){
   if(!file.value){ ElMessage.warning('请选择文件'); return }
