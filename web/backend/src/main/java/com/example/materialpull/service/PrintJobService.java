@@ -121,7 +121,7 @@ public class PrintJobService {
         job.setPrintJobNo(IdGenerator.id("PRN"));
         job.setTaskNo(task.getTaskNo());
         job.setLabelCode(task.getSourceLabelCode());
-        job.setPrintType(firstNonBlank(printType, properties.getDefaultPrintType(), "OUTBOUND_LABEL"));
+        job.setPrintType(firstNonBlank(printType, properties.getDefaultPrintType(), "WAREHOUSE_PICK_LABEL"));
         job.setPrinterName(firstNonBlank(printerName, properties.getDefaultPrinterName()));
         job.setOperator(firstNonBlank(operator, OperatorResolver.systemOperator()));
         job.setPayload(payload(job, task));
@@ -148,24 +148,34 @@ public class PrintJobService {
     }
 
     private String payload(PrintJobEntity job, ReplenishmentTaskEntity t) {
-        return "{\"printJobNo\":\"" + esc(job.getPrintJobNo()) + "\",\"taskNo\":\"" + esc(t.getTaskNo()) + "\",\"labelCode\":\"" + esc(t.getSourceLabelCode()) + "\",\"printType\":\"" + esc(job.getPrintType()) + "\",\"printerName\":\"" + esc(job.getPrinterName()) + "\",\"warehouseCode\":\"" + esc(t.getWarehouseCode()) + "\",\"materialCode\":\"" + esc(t.getMaterialCode()) + "\",\"materialName\":\"" + esc(t.getMaterialName()) + "\",\"materialImageUrl\":\"" + esc(t.getMaterialImageUrl()) + "\",\"qty\":\"" + t.getRequestQty() + "\",\"from\":\"" + esc(firstNonBlank(t.getWarehouseAddress(), t.getWarehouseLocation(), t.getWarehouseCode())) + "\",\"to\":\"" + esc(firstNonBlank(t.getSendStationAddress(), t.getDeliveryAddress(), t.getStationCode())) + "\",\"zpl\":\"" + esc(zpl(t)) + "\"}";
+        return "{\"printJobNo\":\"" + esc(job.getPrintJobNo()) + "\",\"taskNo\":\"" + esc(t.getTaskNo()) + "\",\"labelCode\":\"" + esc(t.getSourceLabelCode()) + "\",\"printType\":\"" + esc(job.getPrintType()) + "\",\"printerName\":\"" + esc(job.getPrinterName()) + "\",\"barcode\":\"" + esc(warehouseBarcode(t)) + "\",\"warehouseCode\":\"" + esc(t.getWarehouseCode()) + "\",\"materialCode\":\"" + esc(t.getMaterialCode()) + "\",\"materialName\":\"" + esc(t.getMaterialName()) + "\",\"materialImageUrl\":\"" + esc(t.getMaterialImageUrl()) + "\",\"boxSize\":\"" + esc(t.getBoxSize()) + "\",\"qty\":\"" + t.getRequestQty() + "\",\"from\":\"" + esc(firstNonBlank(t.getWarehouseAddress(), t.getWarehouseLocation(), t.getWarehouseCode())) + "\",\"to\":\"" + esc(firstNonBlank(t.getSendStationAddress(), t.getDeliveryAddress(), t.getStationCode())) + "\",\"zpl\":\"" + esc(zpl(t)) + "\"}";
     }
 
     private String zpl(ReplenishmentTaskEntity t) {
         String to = firstNonBlank(t.getSendStationAddress(), t.getDeliveryAddress(), t.getStationCode());
         String from = firstNonBlank(t.getWarehouseAddress(), t.getWarehouseLocation(), t.getWarehouseCode());
+        String qty = t.getRequestQty() == null ? "" : t.getRequestQty().toPlainString();
         return "^XA\n" +
                 "^CI28\n" +
-                "^FO40,30^A0N,34,34^FD物料拉动出货标签^FS\n" +
-                "^FO40,80^A0N,26,26^FD任务:" + z(t.getTaskNo()) + "^FS\n" +
-                "^FO40,120^A0N,26,26^FD物料:" + z(t.getMaterialCode()) + " " + z(t.getMaterialName()) + "^FS\n" +
-                "^FO40,160^A0N,26,26^FD数量:" + t.getRequestQty() + "^FS\n" +
-                "^FO40,200^A0N,26,26^FD取料:" + z(from) + "^FS\n" +
-                "^FO40,240^A0N,26,26^FD送达:" + z(to) + "^FS\n" +
-                "^FO40,290^BCN,80,Y,N,N^FD" + z(t.getTaskNo()) + "^FS\n" +
+                "^PW1240\n" +
+                "^LL1520\n" +
+                "^FO40,30^GB1160,1450,4^FS\n" +
+                "^FO80,70^BCN,170,Y,N,N^FD" + z(warehouseBarcode(t)) + "^FS\n" +
+                "^FO40,300^GB1160,0,3^FS\n" +
+                "^FO90,350^A0N,60,60^FD" + z(firstNonBlank(t.getMaterialName(), t.getMaterialCode())) + "^FS\n" +
+                "^FO40,500^GB1160,0,3^FS\n" +
+                "^FO90,550^A0N,54,54^FD" + z(from) + "^FS\n" +
+                "^FO40,700^GB1160,0,3^FS\n" +
+                "^FO90,750^A0N,54,54^FD" + z(to) + "^FS\n" +
+                "^FO40,900^GB1160,0,3^FS\n" +
+                "^FO90,950^A0N,54,54^FD盒子大小        数量^FS\n" +
+                "^FO90,1060^A0N,60,60^FD" + z(firstNonBlank(t.getBoxSize(), "-")) + "        " + z(qty) + "^FS\n" +
+                "^FO40,1200^GB1160,0,3^FS\n" +
+                "^FO90,1280^A0N,54,54^FD送料人工号:" + z(firstNonBlank(t.getDelivererEmployeeNo(), "")) + "^FS\n" +
                 "^XZ";
     }
 
+    private String warehouseBarcode(ReplenishmentTaskEntity t) { return firstNonBlank(t.getWarehouseCode(), t.getBarcodeValue(), t.getWarehouseMaterialCode(), t.getTaskNo()); }
     private String esc(String v) { return v == null ? "" : v.replace("\\", "\\\\").replace("\"", "\\\"").replace("\r", "\\r").replace("\n", "\\n"); }
     private String z(String v) { return v == null ? "" : v.replace("^", "").replace("~", ""); }
     private String firstNonBlank(String... values) { if (values == null) return null; for (String v : values) if (v != null && !v.isBlank()) return v.trim(); return null; }
