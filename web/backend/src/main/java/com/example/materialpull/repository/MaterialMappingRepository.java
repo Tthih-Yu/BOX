@@ -6,4 +6,6 @@ import java.util.*;
 
 public interface MaterialMappingRepository extends JpaRepository<MaterialMappingEntity, Long> {
     Optional<MaterialMappingEntity> findByLineMaterialCodeAndEnabledTrue(String lineMaterialCode);
+    List<MaterialMappingEntity> findByLineMaterialCodeAndEnabledTrueOrderByIdAsc(String lineMaterialCode);
+    Optional<MaterialMappingEntity> findByWarehouseCodeAndEnabledTrue(String warehouseCode);
 }
