@@ -77,8 +77,15 @@ public class LabelResolverService {
         if (materialCode == null) return Optional.empty();
         List<MaterialMappingEntity> mappings = mappingRepository.findByLineMaterialCodeAndEnabledTrueOrderByIdAsc(materialCode);
         MaterialMappingEntity mapping = mappings.isEmpty() ? null : mappings.get(0);
+        String labelCode = "QR-" + materialCode + "-" + Integer.toHexString(rawCode.hashCode()).toUpperCase(Locale.ROOT);
+        Optional<LabelEntity> old = labelRepository.findByLabelCode(labelCode);
+        if (old.isPresent()) {
+            LabelEntity existing = old.get();
+            enrichFromMapping(existing, rawCode);
+            return Optional.of(existing);
+        }
         LabelEntity label = new LabelEntity();
-        label.setLabelCode("QR-" + materialCode + "-" + Integer.toHexString(rawCode.hashCode()).toUpperCase(Locale.ROOT));
+        label.setLabelCode(labelCode);
         label.setLabelType("SITE_QR_MATERIAL");
         label.setCodeCarrierType("QR_CODE");
         label.setTemplateCode("SITE_QR_MATERIAL");
@@ -139,8 +146,8 @@ public class LabelResolverService {
                 n.fields().forEachRemaining(e -> map.put(e.getKey(), e.getValue().asText()));
             } catch (Exception ignored) {}
         }
-        if (code.contains("=") || code.contains(":")) {
-            for (String p : code.split("[;|,，]") ) {
+        if (code.contains("=") || code.contains(":") || code.contains("：")) {
+            for (String p : code.split("[;|,，]")) {
                 String[] kv = p.split("[:=：]", 2);
                 if (kv.length == 2) map.put(kv[0].trim(), kv[1].trim());
             }
