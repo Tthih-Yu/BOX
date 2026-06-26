@@ -2,7 +2,6 @@ package com.example.materialpull.service;
 
 import com.example.materialpull.common.BusinessException;
 import com.example.materialpull.common.ErrorCode;
-import com.example.materialpull.common.IdGenerator;
 import com.example.materialpull.common.OperatorResolver;
 import com.example.materialpull.dto.LabelDtos;
 import com.example.materialpull.entity.LabelEntity;
@@ -43,7 +42,8 @@ public class SiteQrLabelGenerateService {
             MaterialMappingEntity map = mappings.isEmpty() ? null : mappings.get(Math.min(i, mappings.size() - 1));
             String usage = map == null ? (i == 0 ? "USE" : "SPARE") : map.getLabelUsageType();
             String mode = map == null ? ("SPARE".equalsIgnoreCase(usage) ? "URGENT" : "NORMAL") : map.getDeliveryMode();
-            String qrText = qrPayload(station, map, usage, mode);
+            String sideIndex = String.valueOf(i + 1);
+            String qrText = qrPayload(station, map, usage, mode, sideIndex);
             String labelCode = "SITEQR-" + station.getStationCode() + "-" + station.getMaterialCode() + "-" + Integer.toHexString(qrText.hashCode()).toUpperCase(Locale.ROOT);
             LabelEntity label = labelRepository.findByLabelCode(labelCode).orElseGet(LabelEntity::new);
             label.setLabelCode(labelCode);
@@ -72,6 +72,7 @@ public class SiteQrLabelGenerateService {
             label.setStandardQty(quantity(station, map));
             label.setLabelUsageType(usage);
             label.setDeliveryMode(mode);
+            label.setBoxSide(sideIndex);
             label.setRemark("现场二维码标签：二维码包含物料号、物料名称、物料地址；仓库代号来自Excel映射");
             out.add(labelRepository.save(label));
         }
@@ -79,9 +80,9 @@ public class SiteQrLabelGenerateService {
         return out;
     }
 
-    private String qrPayload(StationMaterialEntity s, MaterialMappingEntity m, String usage, String mode) {
+    private String qrPayload(StationMaterialEntity s, MaterialMappingEntity m, String usage, String mode, String sideIndex) {
         String materialAddress = firstNonBlank(s.getDeliveryAddress(), s.getStationName(), s.getStationCode());
-        return "物料号=" + safe(s.getMaterialCode()) + ";物料名称=" + safe(s.getMaterialName()) + ";物料地址=" + safe(materialAddress) + ";usage=" + safe(usage) + ";deliveryMode=" + safe(mode) + ";warehouseCode=" + safe(m == null ? null : m.getWarehouseCode());
+        return "物料号=" + safe(s.getMaterialCode()) + ";物料名称=" + safe(s.getMaterialName()) + ";物料地址=" + safe(materialAddress) + ";side=" + safe(sideIndex) + ";usage=" + safe(usage) + ";deliveryMode=" + safe(mode) + ";warehouseCode=" + safe(m == null ? null : m.getWarehouseCode());
     }
 
     private BigDecimal quantity(StationMaterialEntity s, MaterialMappingEntity m) {
