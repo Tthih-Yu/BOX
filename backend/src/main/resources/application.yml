@@ -1,0 +1,137 @@
+server:
+  port: 8080
+  servlet:
+    context-path: /api
+  tomcat:
+    connection-timeout: 10s
+    accept-count: 200
+    threads:
+      max: 200
+      min-spare: 20
+
+spring:
+  application:
+    name: material-pull-system
+  datasource:
+    url: jdbc:h2:file:./data/material-pull;MODE=MySQL;DATABASE_TO_LOWER=TRUE;AUTO_SERVER=TRUE
+    username: sa
+    password:
+    driver-class-name: org.h2.Driver
+    hikari:
+      maximum-pool-size: 20
+      minimum-idle: 5
+      connection-timeout: 5000
+      validation-timeout: 3000
+      idle-timeout: 600000
+      max-lifetime: 1800000
+  h2:
+    console:
+      enabled: false
+      path: /h2-console
+  jpa:
+    hibernate:
+      ddl-auto: ${MATERIAL_PULL_DDL_AUTO:update}
+    open-in-view: false
+    show-sql: false
+    properties:
+      hibernate:
+        format_sql: true
+        jdbc:
+          batch_size: 50
+        order_inserts: true
+        order_updates: true
+  jackson:
+    time-zone: Asia/Shanghai
+    date-format: yyyy-MM-dd HH:mm:ss
+  servlet:
+    multipart:
+      max-file-size: 20MB
+      max-request-size: 20MB
+  transaction:
+    default-timeout: 15
+
+springdoc:
+  api-docs:
+    enabled: false
+  swagger-ui:
+    enabled: false
+    path: /swagger-ui.html
+
+app:
+  cors:
+    allowed-origins: "http://localhost:5173,http://127.0.0.1:5173,http://192.168.31.148:5173,http://47.103.94.109,http://47.103.94.109:80"
+  security:
+    session-ttl-minutes: 480
+    websocket-ticket-ttl-seconds: 120
+    external-api-key: ${MATERIAL_PULL_EXTERNAL_API_KEY:CHANGE_ME_EXTERNAL_API_KEY}
+    dev-tools-enabled: false
+    allow-websocket-query-token: false
+  bootstrap:
+    admin-username: ${MATERIAL_PULL_BOOTSTRAP_ADMIN_USERNAME:admin}
+    admin-password: ${MATERIAL_PULL_BOOTSTRAP_ADMIN_PASSWORD:}
+    admin-real-name: ${MATERIAL_PULL_BOOTSTRAP_ADMIN_REAL_NAME:系统管理员}
+  task:
+    warn-minutes: 30
+    timeout-minutes: 120
+  label:
+    prefix: LBL
+    auto-generate-count: 20
+  factory:
+    lock-wait-ms: 5000
+    stuck-task-minutes: 180
+    recover-batch-size: 100
+    return-existing-task-on-duplicate-scan: true
+    strict-inventory: true
+    ignore-push-failure: true
+    default-print-type: OUTBOUND_LABEL
+    default-printer-name: ${MATERIAL_PULL_DEFAULT_PRINTER:}
+    print-submit-url: ${MATERIAL_PULL_PRINT_SUBMIT_URL:}
+    print-cancel-url: ${MATERIAL_PULL_PRINT_CANCEL_URL:}
+    print-auth-header: ${MATERIAL_PULL_PRINT_AUTH_HEADER:X-Api-Key}
+    print-api-key: ${MATERIAL_PULL_PRINT_API_KEY:}
+    agv-dispatch-url: ${MATERIAL_PULL_AGV_DISPATCH_URL:}
+    agv-cancel-url: ${MATERIAL_PULL_AGV_CANCEL_URL:}
+    agv-auth-header: ${MATERIAL_PULL_AGV_AUTH_HEADER:X-Api-Key}
+    agv-api-key: ${MATERIAL_PULL_AGV_API_KEY:}
+    external-call-timeout-ms: ${MATERIAL_PULL_EXTERNAL_CALL_TIMEOUT_MS:5000}
+  scheduler:
+    timeout-check-ms: 60000
+
+logging:
+  level:
+    root: INFO
+    com.example.materialpull: INFO
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level trace=%X{traceId} %logger{36} - %msg%n"
+
+---
+spring:
+  config:
+    activate:
+      on-profile: dev
+  h2:
+    console:
+      enabled: true
+springdoc:
+  api-docs:
+    enabled: true
+  swagger-ui:
+    enabled: true
+app:
+  security:
+    dev-tools-enabled: true
+    allow-websocket-query-token: true
+
+---
+spring:
+  config:
+    activate:
+      on-profile: mysql
+  datasource:
+    url: jdbc:mysql://localhost:3306/material_pull?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
+    username: ${MYSQL_USER:}
+    password: ${MYSQL_PASSWORD:}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+  jpa:
+    hibernate:
+      ddl-auto: ${MATERIAL_PULL_MYSQL_DDL_AUTO:validate}
