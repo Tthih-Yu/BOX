@@ -10,27 +10,59 @@ Thumbs.db
 logs/
 web/logs/
 
+# Local machine and secrets
+.env
+.env.*
+*.env
+!*.env.example
+local.properties
+androidAPP/local.properties
+*.pem
+*.key
+*.p12
+*.jks
+keystore*
+id_rsa*
+credentials.json
+deploy/scripts/material-pull.env
+web/deploy/scripts/material-pull.env
+
 # Java / Maven / Spring Boot
+target/
 **/target/
-**/.mvn/wrapper/maven-wrapper.jar
+.m2-repo/
 web/.m2-repo/
 
-# Database / runtime data
-**/data/
-*.db
-*.mv.db
-*.trace.db
-
 # Node / Vite
+node_modules/
 **/node_modules/
+dist/
 **/dist/
+.vite/
+**/.vite/
 
 # Android / Gradle
 .gradle/
 **/.gradle/
+build/
 **/build/
+captures/
 **/captures/
+.externalNativeBuild/
 **/.externalNativeBuild/
+.cxx/
 **/.cxx/
-local.properties
-androidAPP/local.properties
+
+# Runtime data
+backend/data/
+web/backend/data/
+*.db
+*.mv.db
+*.trace.db
+*.sqlite
+*.sqlite3
+
+# Test / coverage caches
+coverage/
+.cache/
+**/.cache/
