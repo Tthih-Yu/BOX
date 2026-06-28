@@ -24,6 +24,7 @@ androidAPP/local.properties
 keystore*
 id_rsa*
 credentials.json
+kiey/
 deploy/scripts/material-pull.env
 web/deploy/scripts/material-pull.env
 
