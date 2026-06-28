@@ -28,6 +28,13 @@ kiey/
 deploy/scripts/material-pull.env
 web/deploy/scripts/material-pull.env
 
+# Non-core reference/deploy artifacts
+deploy/
+docs/
+inage/
+web/deploy/
+web/docs/
+
 # Java / Maven / Spring Boot
 target/
 **/target/
