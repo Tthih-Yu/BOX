@@ -1,0 +1,83 @@
+name: Build Android APK
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "androidAPP/**"
+      - ".github/workflows/android-apk.yml"
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  build-android-apk:
+    name: Build Android debug APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    defaults:
+      run:
+        working-directory: androidAPP
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK platform
+        shell: bash
+        run: |
+          set -euo pipefail
+          yes | sdkmanager --licenses >/dev/null
+          if sdkmanager "platforms;android-37"; then
+            echo "ANDROID_COMPILE_SDK=37" >> "$GITHUB_ENV"
+          else
+            echo "Android SDK 37 is not available on the runner SDK channel. Falling back to SDK 36 for CI build only."
+            sdkmanager "platforms;android-36"
+            perl -0pi -e 's/version = release\(37\)/version = release(36)/' app/build.gradle.kts
+            echo "ANDROID_COMPILE_SDK=36" >> "$GITHUB_ENV"
+          fi
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "9.2.1"
+
+      - name: Show build environment
+        run: |
+          java -version
+          gradle --version
+          echo "ANDROID_HOME=$ANDROID_HOME"
+          echo "ANDROID_COMPILE_SDK=$ANDROID_COMPILE_SDK"
+
+      - name: Build debug APK
+        run: gradle --no-daemon --stacktrace :app:assembleDebug
+
+      - name: Upload debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: BOX-android-debug-apk
+          path: androidAPP/app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload build reports on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: BOX-android-build-reports
+          path: |
+            androidAPP/app/build/reports/**
+            androidAPP/build/reports/**
+          if-no-files-found: ignore
+          retention-days: 7
