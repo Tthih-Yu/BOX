@@ -37,8 +37,8 @@ jobs:
       - name: Install Android SDK platform
         shell: bash
         run: |
-          set -euo pipefail
-          yes | sdkmanager --licenses >/dev/null
+          set -eu
+          yes | sdkmanager --licenses >/dev/null || true
           if sdkmanager "platforms;android-37"; then
             echo "ANDROID_COMPILE_SDK=37" >> "$GITHUB_ENV"
           else
