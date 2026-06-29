@@ -39,14 +39,8 @@ jobs:
         run: |
           set -eu
           yes | sdkmanager --licenses >/dev/null || true
-          if sdkmanager "platforms;android-37"; then
-            echo "ANDROID_COMPILE_SDK=37" >> "$GITHUB_ENV"
-          else
-            echo "Android SDK 37 is not available on the runner SDK channel. Falling back to SDK 36 for CI build only."
-            sdkmanager "platforms;android-36"
-            perl -0pi -e 's/version = release\(37\)/version = release(36)/' app/build.gradle.kts
-            echo "ANDROID_COMPILE_SDK=36" >> "$GITHUB_ENV"
-          fi
+          sdkmanager "platforms;android-36" "build-tools;36.0.0" "platform-tools"
+          echo "ANDROID_COMPILE_SDK=36" >> "$GITHUB_ENV"
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
