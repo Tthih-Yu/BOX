@@ -1,0 +1,15 @@
+[Unit]
+Description=Material Pull System - Access URL Announcer
+After=network-online.target nginx.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=tthih
+Group=tthih
+ExecStart=/bin/bash /home/tthih/IE/deploy/scripts/announce-access-url.sh
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

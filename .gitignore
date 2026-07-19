@@ -1,0 +1,32 @@
+# ===== 构建产物 / 依赖 =====
+/backend/target/
+/backend/data/
+/frontend/node_modules/
+/frontend/dist/
+.m2-repo/
+/androidAPP/**/build/
+/androidAPP/**/.gradle/
+/androidAPP/app/release/
+*.apk
+/print-agent/bin/
+/print-agent/obj/
+
+# 临时/无关文件
+1.txt
+
+# ===== 日志 / 运行态 =====
+*.log
+/backend/logs/
+/logs/
+/.run/
+
+# ===== 敏感信息（含真实密码/密钥，切勿提交）=====
+.env
+deploy/scripts/material-pull.env
+凭证清单-请勿上传.md
+deploy/certs/
+
+# ===== 编辑器 / 系统 =====
+.DS_Store
+.idea/
+.vscode/

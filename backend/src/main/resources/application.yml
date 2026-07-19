@@ -1,0 +1,198 @@
+server:
+  port: 8080
+  servlet:
+    context-path: /api
+  tomcat:
+    connection-timeout: 10s
+    accept-count: 200
+    threads:
+      max: 200
+      min-spare: 20
+
+spring:
+  application:
+    name: material-pull-system
+  datasource:
+    # H2 默认不再启用 AUTO_SERVER（容器内单实例挂卷无需多进程访问，避免误起双实例写坏文件）。
+    # 如确需多进程访问，通过环境变量显式覆盖 URL。
+    url: ${MATERIAL_PULL_DATASOURCE_URL:jdbc:h2:file:./data/material-pull;MODE=MySQL;DATABASE_TO_LOWER=TRUE}
+    username: ${MATERIAL_PULL_DATASOURCE_USERNAME:sa}
+    password: ${MATERIAL_PULL_DATASOURCE_PASSWORD:}
+    driver-class-name: ${MATERIAL_PULL_DATASOURCE_DRIVER:org.h2.Driver}
+    hikari:
+      maximum-pool-size: 20
+      minimum-idle: 5
+      connection-timeout: 5000
+      validation-timeout: 3000
+      idle-timeout: 600000
+      max-lifetime: 1800000
+  h2:
+    console:
+      enabled: false
+      path: /h2-console
+  data:
+    redis:
+      host: ${MATERIAL_PULL_REDIS_HOST:localhost}
+      port: ${MATERIAL_PULL_REDIS_PORT:6379}
+      password: ${MATERIAL_PULL_REDIS_PASSWORD:}
+      timeout: 3000ms
+      lettuce:
+        pool:
+          max-active: 16
+          max-idle: 8
+          min-idle: 2
+  jpa:
+    hibernate:
+      ddl-auto: ${MATERIAL_PULL_DDL_AUTO:update}
+    open-in-view: false
+    show-sql: false
+    properties:
+      hibernate:
+        format_sql: true
+        jdbc:
+          batch_size: 50
+        order_inserts: true
+        order_updates: true
+  jackson:
+    time-zone: Asia/Shanghai
+    date-format: yyyy-MM-dd HH:mm:ss
+  servlet:
+    multipart:
+      # 导入已改为流式解析，内存与文件大小无关，故放开上限以支持大批量数据导入；可按需再调大。
+      max-file-size: ${MATERIAL_PULL_MULTIPART_MAX_FILE_SIZE:512MB}
+      max-request-size: ${MATERIAL_PULL_MULTIPART_MAX_REQUEST_SIZE:512MB}
+      # 超过该阈值的上传写入磁盘临时文件而非留在内存，进一步降低大文件上传的内存占用。
+      file-size-threshold: ${MATERIAL_PULL_MULTIPART_FILE_SIZE_THRESHOLD:2MB}
+  transaction:
+    default-timeout: 15
+
+springdoc:
+  api-docs:
+    enabled: false
+  swagger-ui:
+    enabled: false
+    path: /swagger-ui.html
+
+app:
+  cluster:
+    # 多实例 / 高可用部署时设为 true（依赖 Redis）；单机默认 false，行为与改造前一致
+    enabled: ${MATERIAL_PULL_CLUSTER_ENABLED:false}
+    key-prefix: ${MATERIAL_PULL_CLUSTER_KEY_PREFIX:material-pull}
+  cors:
+    # 生产环境通过环境变量覆盖，逗号分隔；不要把生产域名硬编码进代码库
+    allowed-origins: ${MATERIAL_PULL_CORS_ALLOWED_ORIGINS:http://localhost:5173,http://127.0.0.1:5173}
+  security:
+    session-ttl-minutes: 480
+    websocket-ticket-ttl-seconds: 120
+    external-api-key: ${MATERIAL_PULL_EXTERNAL_API_KEY:CHANGE_ME_EXTERNAL_API_KEY}
+    dev-tools-enabled: false
+    allow-websocket-query-token: false
+    device-auth:
+      # 扫码设备加固：默认不强制设备密钥以兼容现有现场设备；生产建议开启并配合网络隔离。
+      require-device-key: ${MATERIAL_PULL_DEVICE_REQUIRE_KEY:false}
+      device-keys: ${MATERIAL_PULL_DEVICE_KEYS:}
+      # /scan/* 来源 IP 白名单（逗号分隔的 IP 或 CIDR）；为空不限制。
+      allowed-ip-cidrs: ${MATERIAL_PULL_DEVICE_ALLOWED_CIDRS:}
+    actuator:
+      # 敏感 Actuator 端点(prometheus/metrics/info)应用层防护；health 探针始终放行。
+      # 配置令牌后需携带 X-Actuator-Token 匹配；为空则按真实来源 IP 白名单判断(下方 CIDR)。
+      token: ${MATERIAL_PULL_ACTUATOR_TOKEN:}
+      # 允许直连的来源 IP/CIDR(按真实 remoteAddr，不信任 X-Forwarded-For)。默认回环+内网私有网段。
+      allowed-ip-cidrs: ${MATERIAL_PULL_ACTUATOR_ALLOWED_CIDRS:127.0.0.1/32,::1/128,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16}
+  bootstrap:
+    admin-username: ${MATERIAL_PULL_BOOTSTRAP_ADMIN_USERNAME:admin}
+    admin-password: ${MATERIAL_PULL_BOOTSTRAP_ADMIN_PASSWORD:}
+    admin-real-name: ${MATERIAL_PULL_BOOTSTRAP_ADMIN_REAL_NAME:系统管理员}
+  task:
+    warn-minutes: 30
+    timeout-minutes: 120
+  label:
+    prefix: LBL
+    auto-generate-count: 20
+  factory:
+    lock-wait-ms: 5000
+    stuck-task-minutes: 180
+    recover-batch-size: 100
+    return-existing-task-on-duplicate-scan: true
+    strict-inventory: true
+    ignore-push-failure: true
+    default-print-type: OUTBOUND_LABEL
+    default-printer-name: ${MATERIAL_PULL_DEFAULT_PRINTER:}
+    print-submit-url: ${MATERIAL_PULL_PRINT_SUBMIT_URL:}
+    print-cancel-url: ${MATERIAL_PULL_PRINT_CANCEL_URL:}
+    print-auth-header: ${MATERIAL_PULL_PRINT_AUTH_HEADER:X-Api-Key}
+    print-api-key: ${MATERIAL_PULL_PRINT_API_KEY:}
+    agv-dispatch-url: ${MATERIAL_PULL_AGV_DISPATCH_URL:}
+    agv-cancel-url: ${MATERIAL_PULL_AGV_CANCEL_URL:}
+    agv-auth-header: ${MATERIAL_PULL_AGV_AUTH_HEADER:X-Api-Key}
+    agv-api-key: ${MATERIAL_PULL_AGV_API_KEY:}
+    external-call-timeout-ms: ${MATERIAL_PULL_EXTERNAL_CALL_TIMEOUT_MS:5000}
+  scheduler:
+    timeout-check-ms: 60000
+    auto-print-check-ms: 60000
+
+logging:
+  level:
+    root: INFO
+    com.example.materialpull: INFO
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level trace=%X{traceId} %logger{36} - %msg%n"
+
+management:
+  endpoints:
+    web:
+      exposure:
+        # 暴露健康检查、信息与 Prometheus 指标；按需增减
+        include: health,info,prometheus,metrics
+      base-path: /actuator
+  endpoint:
+    health:
+      show-details: when_authorized
+      probes:
+        enabled: true
+  health:
+    # 单机模式未启用 Redis，关闭 Redis 健康指示器避免 /health 误报 DOWN；
+    # 集群模式可通过环境变量 MANAGEMENT_HEALTH_REDIS_ENABLED=true 打开。
+    redis:
+      enabled: ${MANAGEMENT_HEALTH_REDIS_ENABLED:false}
+  metrics:
+    tags:
+      application: material-pull-system
+  prometheus:
+    metrics:
+      export:
+        enabled: true
+
+---
+spring:
+  config:
+    activate:
+      on-profile: dev
+  h2:
+    console:
+      enabled: true
+springdoc:
+  api-docs:
+    enabled: true
+  swagger-ui:
+    enabled: true
+app:
+  security:
+    dev-tools-enabled: true
+    allow-websocket-query-token: true
+
+---
+spring:
+  config:
+    activate:
+      on-profile: mysql
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:mysql://localhost:3306/material_pull?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true}
+    username: ${MYSQL_USER:}
+    password: ${MYSQL_PASSWORD:}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+  jpa:
+    hibernate:
+      # 生产稳态用 validate（表结构由初始化流程建好）；
+      # 首次部署到空库时临时设为 update 让 Hibernate 按实体建表，验证后改回 validate。
+      ddl-auto: ${MATERIAL_PULL_MYSQL_DDL_AUTO:validate}
