@@ -1,0 +1,15 @@
+package com.example.materialpull;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.scheduling.annotation.EnableScheduling;
+import org.springframework.boot.context.properties.ConfigurationPropertiesScan;
+
+@EnableScheduling
+@ConfigurationPropertiesScan
+@SpringBootApplication
+public class MaterialPullApplication {
+    public static void main(String[] args) {
+        SpringApplication.run(MaterialPullApplication.class, args);
+    }
+}
