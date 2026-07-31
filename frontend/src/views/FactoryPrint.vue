@@ -53,13 +53,21 @@
             <el-tag :type="tagType(row.status)" size="small">{{ row.status }}</el-tag>
           </div>
           <div class="label-thumb" @click="previewPending(row)">
-            <div class="thumb-usage" :class="{ urgent: isUrgentTask(row) }">{{ isUrgentTask(row) ? '紧急配送(备用)' : '正常配送(使用)' }}</div>
-            <div class="thumb-barcode"><div class="fake-bars"></div><b>{{ previewField(row, 'warehouseCode', 'barcodeValue') }}</b></div>
-            <div class="thumb-row material"><span>物料</span><b>{{ previewField(row, 'materialCode', 'materialName') }}</b></div>
-            <div class="thumb-row"><span>仓库</span><b>{{ previewField(row, 'warehouseAddress', 'warehouseLocation') }}</b></div>
-            <div class="thumb-row station"><span>工位</span><b>{{ stationName(row) }}</b></div>
-            <div class="thumb-two"><div><span>盒子</span><b>{{ previewField(row, 'boxSize') }}</b></div><div><span>数量</span><b>{{ previewField(row, 'requestQty') }}</b></div></div>
-            <div class="thumb-foot">{{ row.taskNo }}</div>
+            <div class="thumb-top">
+              <div class="thumb-usage" :class="{ urgent: isUrgentTask(row) }">{{ isUrgentTask(row) ? '紧急配送(备用)' : '正常配送(使用)' }}</div>
+              <div class="thumb-barcode"><div class="fake-bars"></div><b>{{ previewField(row, 'warehouseCode', 'barcodeValue') }}</b></div>
+            </div>
+            <div class="thumb-mid">
+              <div class="thumb-cell"><span>物料</span><b>{{ previewField(row, 'materialCode', 'materialName') }}</b></div>
+              <div class="thumb-cell"><span>仓储</span><b>{{ previewField(row, 'warehouseAddress', 'warehouseLocation') }}</b></div>
+              <div class="thumb-cell"><span>工位</span><b>{{ stationName(row) }}</b></div>
+            </div>
+            <div class="thumb-bottom">
+              <div class="thumb-cell"><span>盒子</span><b>{{ previewField(row, 'boxSize') }}</b></div>
+              <div class="thumb-cell"><span>数量</span><b>{{ previewField(row, 'requestQty') }}</b></div>
+              <div class="thumb-cell"><span>工号</span><b>{{ previewField(row, 'delivererEmployeeNo') }}</b></div>
+              <div class="thumb-cell"><span>任务</span><b class="mini">{{ row.taskNo }}</b></div>
+            </div>
           </div>
           <div class="thumb-meta"><div><span>申请时间</span><b>{{ fmtTime(row.createdAt || row.receivedAt) }}</b></div><div><span>仓库代号</span><b>{{ row.warehouseCode || '-' }}</b></div></div>
           <div class="thumb-actions">
@@ -121,17 +129,21 @@
 
     <el-dialog v-model="previewDialog" title="待打印标签预览" width="560px">
       <div v-if="previewRow" class="warehouse-label-preview">
-        <div class="label-usage" :class="{ urgent: isUrgentTask(previewRow) }">{{ isUrgentTask(previewRow) ? '紧急配送(备用)' : '正常配送(使用)' }}</div>
-        <div class="label-barcode" v-html="previewBarcodeSvg || ''"></div>
-        <div class="label-line material"><span>物料名称</span><b>{{ previewField(previewRow, 'materialCode', 'materialName') }}</b></div>
-        <div class="label-line addr"><span>仓库地址</span><b>{{ previewField(previewRow, 'warehouseAddress', 'warehouseLocation') }}</b></div>
-        <div class="label-line station"><span>发送工位地址</span><b>{{ previewField(previewRow, 'sendStationAddress', 'deliveryAddress', 'stationName', 'stationCode') }}</b></div>
-        <div class="label-two">
-          <div><span>盒子大小</span><b>{{ previewField(previewRow, 'boxSize') }}</b></div>
-          <div><span>数量</span><b>{{ previewField(previewRow, 'requestQty') }}</b></div>
+        <div class="wl-top">
+          <div class="wl-usage" :class="{ urgent: isUrgentTask(previewRow) }">{{ isUrgentTask(previewRow) ? '紧急配送(备用)' : '正常配送(使用)' }}</div>
+          <div class="wl-barcode" v-html="previewBarcodeSvg || ''"></div>
         </div>
-        <div class="label-line worker"><span>送料人工号</span><b>{{ previewField(previewRow, 'delivererEmployeeNo') }}</b></div>
-        <div class="label-foot">任务号：{{ previewRow.taskNo }}</div>
+        <div class="wl-mid">
+          <div class="wl-cell"><span>物料名称</span><b>{{ previewField(previewRow, 'materialCode', 'materialName') }}</b></div>
+          <div class="wl-cell"><span>仓储地址</span><b>{{ previewField(previewRow, 'warehouseAddress', 'warehouseLocation') }}</b></div>
+          <div class="wl-cell"><span>货架工位地址</span><b class="small">{{ previewField(previewRow, 'sendStationAddress', 'deliveryAddress', 'stationName', 'stationCode') }}</b></div>
+        </div>
+        <div class="wl-bottom">
+          <div class="wl-cell"><span>盒子大小</span><b>{{ previewField(previewRow, 'boxSize') }}</b></div>
+          <div class="wl-cell"><span>数量</span><b>{{ previewField(previewRow, 'requestQty') }}</b></div>
+          <div class="wl-cell"><span>送货人工号</span><b class="small">{{ previewField(previewRow, 'delivererEmployeeNo') }}</b></div>
+          <div class="wl-cell"><span>任务号</span><b class="tiny">{{ previewRow.taskNo }}</b></div>
+        </div>
       </div>
       <el-form label-width="90px" style="margin-top:14px">
         <el-form-item label="打印机"><el-input v-model="printerName" placeholder="后端打印服务用；浏览器打印无需填写" /></el-form-item>
@@ -298,13 +310,19 @@ async function batchSubmitPrintJobs(){
 async function batchPrint(){
   if (!filteredRows.value.length) return
   batchPrinting.value = true
+  const rows = [...filteredRows.value]
+  // 必须在用户点击的同步调用里先开窗，否则会被弹窗拦截；条码异步生成后再回填内容。
+  const w = window.open('', '_blank', 'width=760,height=900')
+  if (!w) { ElMessage.warning('浏览器拦截了打印窗口，请允许本站弹出窗口后重试'); batchPrinting.value = false; return }
   try {
-    const rows = [...filteredRows.value]
-    const w = window.open('', '_blank', 'width=760,height=900')
-    if (!w) { ElMessage.warning('浏览器拦截了打印窗口，请允许本站弹出窗口后重试'); return }
     w.document.open()
-    w.document.write(batchPrintHtml(rows))
+    w.document.write('<!doctype html><html><head><meta charset="utf-8"></head><body style="font-family:sans-serif;padding:24px;color:#333">正在生成条形码，请稍候…</body></html>')
     w.document.close()
+    const svgMap = await renderBarcodes(rows)
+    w.document.open()
+    w.document.write(batchPrintHtml(rows, svgMap))
+    w.document.close()
+    triggerChildPrint(w, 300, false)
     ElMessage.success(`已调起浏览器一键打印：${rows.length} 张，请选择本机斑马打印机`)
     for (const row of rows) {
       try {
@@ -316,6 +334,19 @@ async function batchPrint(){
     batchPrinting.value = false
   }
 }
+// 批量为每张标签向后端请求真实 CODE_128 条码 SVG（并发），按 taskNo 建映射；失败的留空由假条码兜底。
+async function renderBarcodes(rows:any[]){
+  const map:Record<string, string> = {}
+  await Promise.all(rows.map(async (row) => {
+    const code = row.warehouseCode || row.barcodeValue
+    if (!code) return
+    try {
+      const result:any = await post('/labels/code/render', { text: String(code), format: 'CODE_128', width: 520, height: 150, includeText: true })
+      if (result?.svg) map[row.taskNo] = result.svg
+    } catch {}
+  }))
+  return map
+}
 async function previewPending(row:any){
   previewRow.value = row
   previewBarcodeSvg.value = ''
@@ -323,7 +354,7 @@ async function previewPending(row:any){
   const code = row.warehouseCode || row.barcodeValue
   if (code) {
     try {
-      const result:any = await post('/labels/code/render', { text: String(code), format: 'CODE_128', width: 760, height: 230, includeText: true })
+      const result:any = await post('/labels/code/render', { text: String(code), format: 'CODE_128', width: 520, height: 150, includeText: true })
       previewBarcodeSvg.value = result.svg
     } catch (e:any) {
       ElMessage.error(e?.response?.data?.message || e?.message || '条形码生成失败')
@@ -395,12 +426,13 @@ function previewField(row:any, ...keys:string[]){
 async function browserPrint(){
   const r = previewRow.value
   if (!r) return
-  const w = window.open('', '_blank', 'width=420,height=760')
+  const w = window.open('', '_blank', 'width=760,height=520')
   if (!w) { ElMessage.warning('浏览器拦截了打印窗口，请允许本站弹出窗口后重试'); return }
   w.document.open()
   w.document.write(singlePrintHtml(r, previewBarcodeSvg.value || fakeBarcodeHtml(r)))
   w.document.close()
-  ElMessage.success('已调起浏览器打印，请选择本机斑马打印机，纸张 35×95mm，缩放100%、边距无')
+  triggerChildPrint(w, 200, true)
+  ElMessage.success('已调起浏览器打印，请选择本机斑马打印机，纸张 80×50mm（横向），缩放100%、边距无')
   try {
     await post('/print-jobs', { taskNo: r.taskNo, printerName: (printerName.value.trim() || '浏览器打印'), printType: 'WAREHOUSE_BARCODE_LABEL', printChannel: 'BROWSER' })
     load()
@@ -408,20 +440,32 @@ async function browserPrint(){
   previewDialog.value = false
 }
 function singlePrintHtml(row:any, barcodeHtml:string){
-  return `<!doctype html><html><head><meta charset="utf-8"><title>标签_${escHtml(row.taskNo)}</title>${printStyle()}</head><body>${labelHtml(row, barcodeHtml)}<script>window.onload=function(){setTimeout(function(){window.print()},150)};window.onafterprint=function(){window.close()};<\/script></body></html>`
+  return `<!doctype html><html><head><meta charset="utf-8"><title>标签_${escHtml(row.taskNo)}</title>${printStyle()}</head><body>${labelHtml(row, barcodeHtml)}</body></html>`
 }
-function batchPrintHtml(rows:any[]){
-  return `<!doctype html><html><head><meta charset="utf-8"><title>一键打印_${rows.length}张</title>${printStyle()}</head><body>${rows.map(r => labelHtml(r, fakeBarcodeHtml(r))).join('')}<script>window.onload=function(){setTimeout(function(){window.print()},300)};<\/script></body></html>`
+function batchPrintHtml(rows:any[], svgMap:Record<string,string>){
+  return `<!doctype html><html><head><meta charset="utf-8"><title>一键打印_${rows.length}张</title>${printStyle()}</head><body>${rows.map(r => labelHtml(r, svgMap[r.taskNo] || fakeBarcodeHtml(r))).join('')}</body></html>`
+}
+// 打印从父窗口触发(脚本合规于 CSP 'self')；子窗口内联脚本会被 CSP script-src 'self' 拦截导致打印不弹。
+function triggerChildPrint(w:Window, delay:number, autoClose:boolean){
+  const run = () => {
+    try {
+      w.focus()
+      if (autoClose) w.onafterprint = () => { try { w.close() } catch {} }
+      w.print()
+    } catch { /* 用户可在弹出的标签窗口内手动 Ctrl+P 打印 */ }
+  }
+  if (w.document.readyState === 'complete') setTimeout(run, delay)
+  else w.onload = () => setTimeout(run, delay)
 }
 function labelHtml(r:any, barcodeHtml:string){
   const urgent = isUrgentTask(r)
-  return `<div class="lbl"><div class="use ${urgent?'u':''}">${urgent?'紧急配送(备用)':'正常配送(使用)'}</div><div class="bc">${barcodeHtml}</div><div class="row material"><div class="k">物料名称</div><div class="v">${escHtml(previewField(r,'materialCode','materialName'))}</div></div><div class="row addr"><div class="k">仓库地址</div><div class="v">${escHtml(previewField(r,'warehouseAddress','warehouseLocation'))}</div></div><div class="row station"><div class="k">发送工位地址</div><div class="v">${escHtml(previewField(r,'sendStationAddress','deliveryAddress','stationName','stationCode'))}</div></div><div class="two"><div><div class="k">盒子大小</div><div class="v">${escHtml(previewField(r,'boxSize'))}</div></div><div><div class="k">数量</div><div class="v">${escHtml(previewField(r,'requestQty'))}</div></div></div><div class="row worker"><div class="k">送料人工号</div><div class="v">${escHtml(previewField(r,'delivererEmployeeNo'))}</div></div><div class="foot">任务号：${escHtml(r.taskNo)}</div></div>`
+  return `<div class="lbl"><div class="top"><div class="use ${urgent?'u':''}">${urgent?'紧急配送(备用)':'正常配送(使用)'}</div><div class="bc">${barcodeHtml}</div></div><div class="mid"><div class="cell"><div class="k">物料名称</div><div class="v">${escHtml(previewField(r,'materialCode','materialName'))}</div></div><div class="cell"><div class="k">仓储地址</div><div class="v">${escHtml(previewField(r,'warehouseAddress','warehouseLocation'))}</div></div><div class="cell"><div class="k">货架工位地址</div><div class="v small">${escHtml(previewField(r,'sendStationAddress','deliveryAddress','stationName','stationCode'))}</div></div></div><div class="bottom"><div class="cell"><div class="k">盒子大小</div><div class="v">${escHtml(previewField(r,'boxSize'))}</div></div><div class="cell"><div class="k">数量</div><div class="v">${escHtml(previewField(r,'requestQty'))}</div></div><div class="cell"><div class="k">送货人工号</div><div class="v small">${escHtml(previewField(r,'delivererEmployeeNo'))}</div></div><div class="cell"><div class="k">任务号</div><div class="v tiny">${escHtml(r.taskNo)}</div></div></div></div>`
 }
 function fakeBarcodeHtml(row:any){
   return `<div class="print-bars"></div><div class="print-code">${escHtml(previewField(row, 'warehouseCode', 'barcodeValue'))}</div>`
 }
 function printStyle(){
-  return `<style>@page{size:35mm 95mm;margin:0}*{box-sizing:border-box;-webkit-print-color-adjust:exact;print-color-adjust:exact}html,body{margin:0;padding:0}.lbl{width:35mm;height:95mm;border:.4mm solid #000;font-family:'Microsoft YaHei',Arial,sans-serif;display:flex;flex-direction:column;break-after:page;page-break-after:always}.lbl:last-child{break-after:auto;page-break-after:auto}.use{height:7mm;display:flex;align-items:center;justify-content:center;font-size:3.8mm;font-weight:800;border-bottom:.4mm solid #000}.use.u{background:#000;color:#fff}.bc{height:18mm;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:1mm 2mm;border-bottom:.4mm solid #000;overflow:hidden}.bc svg{width:100%;height:15mm}.print-bars{width:100%;height:11mm;background:repeating-linear-gradient(90deg,#000 0 .6mm,#fff .6mm 1mm,#000 1mm 1.25mm,#fff 1.25mm 1.9mm)}.print-code{font-size:2.3mm;font-weight:700;margin-top:.5mm;max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.row{padding:.8mm 2mm;border-bottom:.4mm solid #000;display:flex;flex-direction:column;justify-content:center;overflow:hidden}.material{flex:1.15}.addr{flex:1}.station{flex:1.35}.worker{flex:1}.k{font-size:2.5mm;font-weight:600}.v{font-size:3.5mm;font-weight:800;word-break:break-all;line-height:1.1}.station .v{font-size:3.1mm}.two{display:flex;flex:1.25;border-bottom:.4mm solid #000}.two>div{flex:1;padding:.8mm 2mm;display:flex;flex-direction:column;justify-content:center;overflow:hidden}.two>div:first-child{border-right:.4mm solid #000}.foot{height:6mm;display:flex;align-items:center;padding:0 2mm;font-size:2.6mm;font-weight:600;white-space:nowrap;overflow:hidden}</style>`
+  return `<style>@page{size:80mm 50mm;margin:0}*{box-sizing:border-box;-webkit-print-color-adjust:exact;print-color-adjust:exact}html,body{margin:0;padding:0}.lbl{width:80mm;height:49.5mm;overflow:hidden;border:.4mm solid #000;font-family:'Microsoft YaHei',Arial,sans-serif;display:flex;flex-direction:column;break-inside:avoid;page-break-inside:avoid;break-after:page;page-break-after:always}.lbl:last-child{break-after:auto;page-break-after:auto}.top{height:16mm;flex:none;display:flex;align-items:center;gap:2mm;padding:0 3mm;border-bottom:.4mm solid #000}.use{flex:none;background:#000;color:#fff;border-radius:4mm;padding:1.6mm 3mm;font-size:3.4mm;font-weight:800;white-space:nowrap}.bc{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;overflow:hidden}.bc svg{width:100%;height:13mm}.print-bars{width:100%;height:9mm;background:repeating-linear-gradient(90deg,#000 0 .6mm,#fff .6mm 1mm,#000 1mm 1.25mm,#fff 1.25mm 1.9mm)}.print-code{font-size:2.3mm;font-weight:700;margin-top:.5mm;max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.mid{display:flex;flex:1;border-bottom:.4mm solid #000;min-height:0}.mid>.cell{flex:1;border-right:.4mm solid #000}.mid>.cell:last-child{border-right:0}.bottom{display:flex;flex:1;min-height:0}.bottom>.cell{flex:1;border-right:.4mm solid #000}.bottom>.cell:last-child{border-right:0}.cell{padding:1mm 2mm;display:flex;flex-direction:column;justify-content:center;gap:.6mm;overflow:hidden;min-height:0}.k{font-size:2.3mm;font-weight:600}.v{font-size:4mm;font-weight:800;word-break:break-all;line-height:1.1}.v.small{font-size:3mm}.v.tiny{font-size:2.2mm;letter-spacing:.1mm}</style>`
 }
 function escHtml(v:any){ return String(v ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;') }
 
@@ -485,7 +529,7 @@ onMounted(load)
 </script>
 <style scoped>
 .station-groups{display:flex;flex-direction:column;gap:18px}.station-group{border:1px solid #e2e8f0;border-radius:12px;background:#fff;padding:12px}.station-title{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px;padding:8px 10px;background:#f8fafc;border-radius:8px}.station-title b{font-size:15px;color:#0f172a}.station-title span{margin-left:10px;color:#64748b;font-size:12px}.station-title small{color:#94a3b8}
-.thumb-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:16px;align-items:start}.thumb-card{background:#fff;border:1px solid #e2e8f0;border-radius:14px;padding:12px;box-shadow:0 8px 24px rgba(15,23,42,.06);transition:.18s}.thumb-card:hover{transform:translateY(-2px);border-color:#93c5fd}.thumb-card.urgent{border-color:#fecaca;background:linear-gradient(180deg,#fff,#fff7ed)}.thumb-tags{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}.label-thumb{width:132px;height:360px;margin:0 auto;border:2px solid #111;background:#fff;color:#111;display:flex;flex-direction:column;cursor:pointer;font-family:Arial,'Microsoft YaHei',sans-serif}.thumb-usage{height:28px;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:800;border-bottom:2px solid #111}.thumb-usage.urgent{background:#111;color:#fff}.thumb-barcode{height:66px;border-bottom:2px solid #111;padding:5px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px}.fake-bars{width:100%;height:34px;background:repeating-linear-gradient(90deg,#111 0 2px,#fff 2px 4px,#111 4px 5px,#fff 5px 8px)}.thumb-barcode b{font-size:10px;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.thumb-row{border-bottom:2px solid #111;padding:4px 6px;display:flex;flex-direction:column;justify-content:center;overflow:hidden;flex:1}.thumb-row.material{flex:1.1}.thumb-row.station{flex:1.25}.thumb-row span,.thumb-two span{font-size:10px;color:#333;font-weight:600}.thumb-row b,.thumb-two b{font-size:13px;font-weight:800;line-height:1.1;word-break:break-all;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}.thumb-two{height:54px;display:flex;border-bottom:2px solid #111}.thumb-two>div{flex:1;padding:4px 6px;display:flex;flex-direction:column;justify-content:center;gap:2px;overflow:hidden}.thumb-two>div:first-child{border-right:2px solid #111}.thumb-foot{height:24px;display:flex;align-items:center;padding:0 6px;font-size:10px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.thumb-meta{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px}.thumb-meta div{background:#f8fafc;border:1px solid #eef2f7;border-radius:8px;padding:6px}.thumb-meta span{display:block;font-size:11px;color:#64748b}.thumb-meta b{display:block;font-size:13px;color:#0f172a;margin-top:2px;word-break:break-all}.thumb-actions{display:flex;justify-content:center;gap:8px;margin-top:10px}
+.thumb-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:16px;align-items:start}.thumb-card{background:#fff;border:1px solid #e2e8f0;border-radius:14px;padding:12px;box-shadow:0 8px 24px rgba(15,23,42,.06);transition:.18s}.thumb-card:hover{transform:translateY(-2px);border-color:#93c5fd}.thumb-card.urgent{border-color:#fecaca;background:linear-gradient(180deg,#fff,#fff7ed)}.thumb-tags{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}.label-thumb{width:240px;height:150px;margin:0 auto;border:2px solid #111;background:#fff;color:#111;display:flex;flex-direction:column;cursor:pointer;font-family:Arial,'Microsoft YaHei',sans-serif}.thumb-top{height:46px;flex:none;display:flex;align-items:center;gap:5px;padding:0 6px;border-bottom:2px solid #111}.thumb-usage{flex:none;background:#111;color:#fff;border-radius:10px;padding:4px 7px;font-size:10px;font-weight:800;white-space:nowrap}.thumb-barcode{flex:1;padding:2px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;overflow:hidden}.fake-bars{width:100%;height:22px;background:repeating-linear-gradient(90deg,#111 0 2px,#fff 2px 4px,#111 4px 5px,#fff 5px 8px)}.thumb-barcode b{font-size:9px;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.thumb-mid{display:flex;flex:1;border-bottom:2px solid #111;min-height:0}.thumb-mid>.thumb-cell{flex:1;border-right:2px solid #111}.thumb-mid>.thumb-cell:last-child{border-right:0}.thumb-bottom{display:flex;flex:1;min-height:0}.thumb-bottom>.thumb-cell{flex:1;border-right:2px solid #111}.thumb-bottom>.thumb-cell:last-child{border-right:0}.thumb-cell{padding:3px 4px;display:flex;flex-direction:column;justify-content:center;gap:1px;overflow:hidden;min-height:0}.thumb-cell span{font-size:9px;color:#333;font-weight:600}.thumb-cell b{font-size:12px;font-weight:800;line-height:1.05;word-break:break-all;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}.thumb-cell b.mini{font-size:8px;-webkit-line-clamp:3}.thumb-meta{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px}.thumb-meta div{background:#f8fafc;border:1px solid #eef2f7;border-radius:8px;padding:6px}.thumb-meta span{display:block;font-size:11px;color:#64748b}.thumb-meta b{display:block;font-size:13px;color:#0f172a;margin-top:2px;word-break:break-all}.thumb-actions{display:flex;justify-content:center;gap:8px;margin-top:10px}
 .pending-panel{border:1px solid #f3d19e;background:#fffbeb;border-radius:12px;padding:14px;margin:12px 0 16px;box-shadow:0 1px 2px rgba(146,64,14,.06)}
 .records-panel{border:1px solid #e2e8f0;background:#fff;border-radius:12px;padding:14px;margin:12px 0 16px;box-shadow:0 1px 2px rgba(15,23,42,.04)}
 .records-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:10px}
@@ -498,7 +542,22 @@ onMounted(load)
 .pending-actions{display:flex;align-items:center;gap:8px;flex-shrink:0}
 .section-title{display:flex;align-items:baseline;gap:10px;margin:8px 0 10px}
 .section-title span{font-size:12.5px;color:#64748b}
-.warehouse-label-preview{width:245px;height:665px;border:2px solid #111;background:#fff;color:#111;margin:0 auto;font-family:Arial,'Microsoft YaHei',sans-serif;box-sizing:border-box;display:flex;flex-direction:column}.label-usage{height:50px;flex:none;display:flex;align-items:center;justify-content:center;font-size:22px;font-weight:800;letter-spacing:1px;border-bottom:2px solid #111}.label-usage.urgent{background:#111;color:#fff}.label-barcode{height:126px;flex:none;border-bottom:2px solid #111;display:flex;align-items:center;justify-content:center;padding:6px 12px;overflow:hidden}.label-barcode :deep(svg){width:100%;height:105px;display:block}.label-line{display:flex;flex-direction:column;justify-content:center;gap:2px;border-bottom:2px solid #111;min-height:0;overflow:hidden;padding:4px 12px}.label-line.material{flex:1.15}.label-line.addr{flex:1}.label-line.station{flex:1.35}.label-line.worker{flex:1}.label-line span{font-size:13px;font-weight:600;color:#333;line-height:1}.label-line b{font-size:22px;font-weight:800;word-break:break-all;line-height:1.1}.label-line.station b{font-size:19px}.label-two{display:flex;flex:1.25;border-bottom:2px solid #111;min-height:0}.label-two>div{flex:1;display:flex;flex-direction:column;justify-content:center;gap:2px;min-height:0;overflow:hidden;padding:4px 12px}.label-two>div:first-child{border-right:2px solid #111}.label-two span{font-size:13px;font-weight:600;color:#333;line-height:1}.label-two b{font-size:21px;font-weight:800;word-break:break-all;line-height:1.1}.label-foot{height:32px;flex:none;font-size:13px;font-weight:600;color:#333;display:flex;align-items:center;padding:0 12px;overflow:hidden;white-space:nowrap}
+.warehouse-label-preview{width:480px;height:300px;border:2px solid #111;background:#fff;color:#111;margin:0 auto;font-family:Arial,'Microsoft YaHei',sans-serif;box-sizing:border-box;display:flex;flex-direction:column}
+.warehouse-label-preview .wl-top{display:flex;align-items:center;gap:10px;height:96px;flex:none;border-bottom:2px solid #111;padding:0 14px}
+.warehouse-label-preview .wl-usage{flex:none;background:#111;color:#fff;border-radius:22px;padding:10px 16px;font-size:18px;font-weight:800;white-space:nowrap}
+.warehouse-label-preview .wl-barcode{flex:1;display:flex;align-items:center;justify-content:center;overflow:hidden}
+.warehouse-label-preview .wl-barcode :deep(svg){width:100%;height:82px;display:block}
+.warehouse-label-preview .wl-mid{display:flex;flex:1;border-bottom:2px solid #111;min-height:0}
+.warehouse-label-preview .wl-mid>.wl-cell{flex:1;border-right:2px solid #111}
+.warehouse-label-preview .wl-mid>.wl-cell:last-child{border-right:0}
+.warehouse-label-preview .wl-bottom{display:flex;flex:1;min-height:0}
+.warehouse-label-preview .wl-bottom>.wl-cell{flex:1;border-right:2px solid #111}
+.warehouse-label-preview .wl-bottom>.wl-cell:last-child{border-right:0}
+.warehouse-label-preview .wl-cell{display:flex;flex-direction:column;justify-content:center;gap:3px;min-height:0;overflow:hidden;padding:6px 10px}
+.warehouse-label-preview .wl-cell span{font-size:12px;font-weight:600;color:#333;line-height:1}
+.warehouse-label-preview .wl-cell b{font-size:22px;font-weight:800;word-break:break-all;line-height:1.1}
+.warehouse-label-preview .wl-cell b.small{font-size:16px}
+.warehouse-label-preview .wl-cell b.tiny{font-size:12px;letter-spacing:.2px}
 .zpl{white-space:pre-wrap;background:#111827;color:#d1d5db;padding:12px;border-radius:8px;margin:0;max-height:280px;overflow:auto}
 .pj-detail{display:flex;flex-direction:column;gap:12px;padding:14px 16px;background:linear-gradient(180deg,#f8fafc 0%,#f1f5f9 100%);border:1px solid #e2e8f0;border-radius:10px}
 .pj-card{background:#fff;border:1px solid #e2e8f0;border-radius:8px;padding:12px 14px;box-shadow:0 1px 2px rgba(15,23,42,.04)}

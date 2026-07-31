@@ -80,6 +80,7 @@ function optionLabel(col: any, val: any): string {
   return typeof match === 'object' ? match.label : match
 }
 async function load(){ rows.value = await get(props.listUrl) }
+defineExpose({ load })
 function openEdit(row:any){ if (!canWrite.value) return; form.value = JSON.parse(JSON.stringify(row || {})); if ('password' in form.value) form.value.password = ''; dialog.value = true }
 async function save(){ if (!canWrite.value) return; await post(props.saveUrl, form.value); dialog.value=false; ElMessage.success('已保存'); load() }
 async function remove(row:any){
