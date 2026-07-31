@@ -2,11 +2,11 @@
   <span class="import-btn-wrap">
     <el-button
       v-if="visible"
-      type="success"
+      :type="overwrite ? 'danger' : 'success'"
       :icon="UploadFilled"
       :loading="importing"
       @click="triggerPick"
-    >{{ label }}</el-button>
+    >{{ buttonText }}</el-button>
     <el-link
       v-if="templateUrl"
       type="primary"
@@ -40,7 +40,7 @@
 import { computed, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { UploadFilled } from '@element-plus/icons-vue'
-import { get, post } from '../api'
+import { get, post, UPLOAD_TIMEOUT_MS } from '../api'
 import { ROLE_SETS } from '../permissions'
 
 const props = withDefaults(defineProps<{
@@ -49,10 +49,13 @@ const props = withDefaults(defineProps<{
   templateUrl?: string
   templateLabel?: string
   writeRoles?: string[]
+  overwrite?: boolean
+  beforePick?: () => Promise<boolean>
 }>(), {
   label: '导入',
   templateLabel: '下载导入模板',
-  writeRoles: () => ROLE_SETS.planner
+  writeRoles: () => ROLE_SETS.planner,
+  overwrite: false
 })
 
 const emit = defineEmits<{
@@ -61,6 +64,7 @@ const emit = defineEmits<{
 
 const fileInputRef = ref<HTMLInputElement | null>(null)
 const importing = ref(false)
+const uploadPercent = ref(0)
 const errDialog = ref(false)
 const errors = ref<any[]>([])
 const lastBatch = ref<any>(null)
@@ -70,10 +74,23 @@ const currentRole = computed(() => {
 })
 const visible = computed(() => currentRole.value === 'ADMIN' || props.writeRoles.includes(currentRole.value))
 
-function triggerPick(){
+const buttonText = computed(() => {
+  if (!importing.value) return props.label
+  return uploadPercent.value >= 100 ? '后台处理中…' : `上传中 ${uploadPercent.value}%`
+})
+
+async function triggerPick(){
   if (!visible.value) {
     ElMessage.warning('当前账号没有导入权限')
     return
+  }
+  if (props.beforePick) {
+    try {
+      const ok = await props.beforePick()
+      if (!ok) return
+    } catch {
+      return
+    }
   }
   if (fileInputRef.value) {
     fileInputRef.value.value = ''
@@ -87,9 +104,17 @@ async function onFileChange(e: Event){
   if (!file) return
   try {
     importing.value = true
+    uploadPercent.value = 0
     const fd = new FormData()
     fd.append('file', file)
-    const batch: any = await post(`/imports/${props.type}`, fd, { headers: { 'Content-Type': 'multipart/form-data' } })
+    if (props.overwrite) fd.append('overwrite', 'true')
+    const batch: any = await post(`/imports/${props.type}`, fd, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      timeout: UPLOAD_TIMEOUT_MS,
+      onUploadProgress: (e: any) => {
+        uploadPercent.value = e.total ? Math.round((e.loaded / e.total) * 100) : 0
+      }
+    })
     lastBatch.value = batch
     const total = batch?.totalRows ?? 0
     const success = batch?.successRows ?? 0
@@ -103,9 +128,14 @@ async function onFileChange(e: Event){
     }
     emit('imported', batch)
   } catch (err: any) {
-    ElMessageBox.alert(err?.message || '导入失败，请检查文件格式与模板字段', '导入失败', { type: 'error' })
+    const timedOut = err?.code === 'ECONNABORTED' || /timeout/i.test(err?.message || '')
+    const message = timedOut
+      ? '导入请求超时。文件可能仍在后台处理，请稍后刷新列表确认结果；若数据未入库，请拆分文件后分批上传。'
+      : (err?.message || '导入失败，请检查文件格式与模板字段')
+    ElMessageBox.alert(message, '导入失败', { type: 'error' })
   } finally {
     importing.value = false
+    uploadPercent.value = 0
     if (input) input.value = ''
   }
 }

@@ -142,8 +142,42 @@ public class BasicDataService {
         stationMaterialRepository.save(e);
     }
 
+    /**
+     * 批量删除料号映射。
+     * scope=ALL 清空全部；scope=AREA 按配送区域删除；否则按 ids 删除。
+     * 与单条“删除”的停用语义不同，这里是物理删除，供“批量删除/覆盖上传”使用。
+     */
     @Transactional
-    public MaterialMappingEntity saveMapping(MaterialMappingEntity entity) {
+    public Map<String, Object> deleteMappings(String scope, String deliveryArea, List<Long> ids) {
+        String mode = scope == null ? "" : scope.trim().toUpperCase(Locale.ROOT);
+        if ("ALL".equals(mode)) {
+            long total = mappingRepository.count();
+            mappingRepository.deleteAllInBatch();
+            return Map.of("deleted", total, "mode", "ALL");
+        }
+        if ("AREA".equals(mode)) {
+            String area = blankToNull(deliveryArea);
+            if (area == null) throw new BusinessException(ErrorCode.PARAM_ERROR, "请指定要删除的配送区域");
+            int deleted = mappingRepository.deleteByDeliveryArea(area);
+            return Map.of("deleted", deleted, "mode", "AREA", "deliveryArea", area);
+        }
+        if (ids == null || ids.isEmpty()) throw new BusinessException(ErrorCode.PARAM_ERROR, "请选择要删除的料号映射");
+        List<Long> distinct = ids.stream().filter(Objects::nonNull).distinct().toList();
+        if (distinct.isEmpty()) throw new BusinessException(ErrorCode.PARAM_ERROR, "请选择要删除的料号映射");
+        mappingRepository.deleteAllByIdInBatch(distinct);
+        return Map.of("deleted", distinct.size(), "mode", "IDS");
+    }
+
+    @Transactional(readOnly = true)
+    public List<MaterialMappingEntity> exportMappings() {
+        return mappingRepository.findAllByOrderByLineMaterialCodeAscMappingOrderAscIdAsc();
+    }
+
+    /**
+     * 校验并补齐料号映射字段，不访问数据库。
+     * 导入的批量 upsert 与单条保存共用同一套字段规则，避免两条链路校验口径不一致。
+     */
+    public void normalizeMapping(MaterialMappingEntity entity) {
         if (entity == null) throw new BusinessException(ErrorCode.PARAM_ERROR, "料号映射不能为空");
         entity.setLineMaterialCode(guard.notBlank(entity.getLineMaterialCode(), "物料号"));
         entity.setStationCode(blankToNull(entity.getStationCode()));
@@ -160,6 +194,32 @@ public class BasicDataService {
         entity.setDeliveryAddress(blankToNull(entity.getDeliveryAddress()));
         entity.setDeliveryArea(firstNonBlank(entity.getDeliveryArea(), "1"));
         entity.setEnabled(entity.getEnabled() == null || entity.getEnabled());
+    }
+
+    /**
+     * 按“仓库代号”为唯一主键批量 upsert 料号映射，供导入使用。
+     * 入参必须已通过 {@link #normalizeMapping} 校验。
+     * 一次事务内只做 1 次存量查询 + 1 次批量写入，避免逐行两次数据库往返导致大文件导入超时。
+     * 同一批内仓库代号重复时以最后一条为准（与“上传信息更新、以最后上传为准”的口径一致）。
+     */
+    @Transactional
+    public void upsertMappingsByWarehouseCode(List<MaterialMappingEntity> rows) {
+        if (rows == null || rows.isEmpty()) return;
+        Map<String, MaterialMappingEntity> deduped = new LinkedHashMap<>();
+        for (MaterialMappingEntity row : rows) deduped.put(row.getWarehouseCode(), row);
+        Map<String, Long> existingIds = new HashMap<>();
+        for (MaterialMappingEntity old : mappingRepository.findByWarehouseCodeInAndEnabledTrue(deduped.keySet())) {
+            existingIds.putIfAbsent(old.getWarehouseCode(), old.getId());
+        }
+        for (MaterialMappingEntity row : deduped.values()) {
+            row.setId(existingIds.get(row.getWarehouseCode()));
+        }
+        mappingRepository.saveAll(deduped.values());
+    }
+
+    @Transactional
+    public MaterialMappingEntity saveMapping(MaterialMappingEntity entity) {
+        normalizeMapping(entity);
         mappingRepository.findByWarehouseCodeAndEnabledTrue(entity.getWarehouseCode()).ifPresent(old -> {
             if (!Objects.equals(old.getId(), entity.getId()) && Boolean.TRUE.equals(entity.getEnabled())) {
                 throw new BusinessException(ErrorCode.DATA_DIRTY, "该仓库代号已有启用映射：" + entity.getWarehouseCode());

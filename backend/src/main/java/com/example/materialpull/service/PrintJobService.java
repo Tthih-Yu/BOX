@@ -27,9 +27,9 @@ public class PrintJobService {
     static final String CFG_DPI = "print.label.dpi";
     static final String CFG_WIDTH_MM = "print.label.width-mm";
     static final String CFG_HEIGHT_MM = "print.label.height-mm";
-    // 参考设计画布：35mm×95mm 在 203dpi 下 = 280×760 点。所有坐标都相对该画布，再按实际 dpi/尺寸缩放。
-    private static final double REF_W = 280.0;
-    private static final double REF_H = 760.0;
+    // 参考设计画布：80mm×50mm 在 203dpi 下 = 640×400 点。所有坐标都相对该画布，再按实际 dpi/尺寸缩放。
+    private static final double REF_W = 640.0;
+    private static final double REF_H = 400.0;
 
     public List<PrintJobEntity> list(String status) {
         if (status == null || status.isBlank()) return printJobRepository.findTop1000ByOrderByCreatedAtDesc();
@@ -248,8 +248,9 @@ public class PrintJobService {
         String worker = firstNonBlank(t.getDelivererEmployeeNo(), "");
         boolean urgent = t.getPriority() == PriorityLevel.URGENT || "URGENT".equalsIgnoreCase(firstNonBlank(t.getDeliveryMode(), "")) || "SPARE".equalsIgnoreCase(firstNonBlank(t.getLabelUsageType(), ""));
 
-        // 实际画布点数 = 物理尺寸(mm) × dpi/25.4。所有坐标按参考画布(280×760)等比缩放，
+        // 实际画布点数 = 物理尺寸(mm) × dpi/25.4。所有坐标按参考画布(640×400)等比缩放，
         // 从而适配任意 dpi(203/300...)与标签尺寸，避免 300dpi 打印机上排版被放大溢出。
+        // 横版 80×50mm@203dpi ≈ 640×400 点：上=用途条+条码，中=三栏(物料/仓库/工位)，下=四栏(盒子/数量/工号/任务号)。
         LabelGeometry g = labelGeometry();
         double sx = g.widthDots / REF_W;   // 横向缩放比
         double sy = g.heightDots / REF_H;  // 纵向缩放比
@@ -259,54 +260,54 @@ public class PrintJobService {
            .append("^PW").append(g.widthDots).append("\n")
            .append("^LL").append(g.heightDots).append("\n^LH0,0\n");
         // 外框
-        box(zpl, 4, 4, 272, 752, 3, sx, sy);
-        // 顶部用途条：紧急为反白黑底，正常为普通文字 + 下分隔线
-        if (urgent) {
-            box(zpl, 4, 4, 272, 60, 60, sx, sy);
-            text(zpl, 24, 18, 40, "紧急配送(备用)", sx, sy, true);
-        } else {
-            text(zpl, 40, 18, 36, "正常配送(使用)", sx, sy, false);
-            box(zpl, 4, 64, 272, 0, 3, sx, sy);
-        }
-        // 条码区（仓库代号）：模块宽 BY 与高度都按缩放比走，保证密度与可扫性
-        int byWidth = Math.max(2, (int) Math.round(3 * sx));
-        int bcHeight = scale(120, sy);
-        zpl.append("^FO").append(scale(16, sx)).append(",").append(scale(74, sy))
+        box(zpl, 8, 8, 624, 384, 3, sx, sy);
+
+        // ===== 顶部带(y 8..140)：左=用途黑底反白药丸，右=条码+数字 =====
+        box(zpl, 24, 36, 268, 68, 68, sx, sy); // 用途药丸(填充黑块)
+        text(zpl, 40, 52, 34, urgent ? "紧急配送(备用)" : "正常配送(使用)", sx, sy, true);
+        // 条码区（仓库代号），下方带明文数字，便于扫码与人工核对
+        int byWidth = Math.max(2, (int) Math.round(2 * sx));
+        int bcHeight = scale(74, sy);
+        zpl.append("^FO").append(scale(320, sx)).append(",").append(scale(26, sy))
            .append("^BY").append(byWidth).append(",2.5,").append(bcHeight)
            .append("^BCN,").append(bcHeight).append(",Y,N,N^FD").append(z(barcode)).append("^FS\n");
-        // 字段分隔线（信息区 y=210..720，共 5 行，每行 102）
-        for (int y = 210; y <= 720; y += 102) {
-            box(zpl, 4, y, 272, 0, 2, sx, sy);
-        }
-        // 第4行“盒子大小|数量”竖分隔线
-        box(zpl, 140, 516, 0, 102, 2, sx, sy);
-        // 各字段：标签(小字)在上，值(大字，超长自动折 2 行)在下
-        appendField(zpl, 218, "物料名称", material, 268, sx, sy);
-        appendField(zpl, 320, "仓库地址", from, 268, sx, sy);
-        appendField(zpl, 422, "发送工位地址", to, 268, sx, sy);
-        // 盒子大小 / 数量（并排两列）
-        text(zpl, 12, 524, 22, "盒子大小", sx, sy, false);
-        text(zpl, 12, 558, 34, z(boxSize), sx, sy, false);
-        text(zpl, 150, 524, 22, "数量", sx, sy, false);
-        text(zpl, 150, 558, 34, z(qty), sx, sy, false);
-        appendField(zpl, 626, "送料人工号", worker, 268, sx, sy);
-        // 页脚：任务号
-        text(zpl, 10, 728, 20, "任务号:" + z(t.getTaskNo()), sx, sy, false);
+
+        // ===== 中部带(y 140..262)：三栏，栏内小字标签在上、大字值在下(超长折2行) =====
+        box(zpl, 8, 140, 624, 0, 2, sx, sy);       // 上分隔线
+        box(zpl, 216, 140, 0, 122, 2, sx, sy);     // 竖分隔
+        box(zpl, 424, 140, 0, 122, 2, sx, sy);
+        appendCol(zpl, 20, 152, "物料名称", material, 188, 40, 2, sx, sy);
+        appendCol(zpl, 228, 152, "仓库地址", from, 188, 40, 2, sx, sy);
+        appendCol(zpl, 436, 152, "发送工位地址", to, 188, 36, 2, sx, sy);
+
+        // ===== 底部带(y 262..392)：四栏 盒子大小/数量/送料人工号/任务号 =====
+        box(zpl, 8, 262, 624, 0, 2, sx, sy);       // 上分隔线
+        box(zpl, 164, 262, 0, 130, 2, sx, sy);     // 竖分隔
+        box(zpl, 320, 262, 0, 130, 2, sx, sy);
+        box(zpl, 476, 262, 0, 130, 2, sx, sy);
+        appendCol(zpl, 20, 276, "盒子大小", boxSize, 140, 44, 1, sx, sy);
+        appendCol(zpl, 176, 276, "数量", qty, 140, 44, 1, sx, sy);
+        appendCol(zpl, 332, 276, "送料人工号", worker, 140, 32, 2, sx, sy);
+        appendCol(zpl, 488, 276, "任务号", firstNonBlank(t.getTaskNo(), ""), 140, 20, 3, sx, sy);
+
         zpl.append("^XZ");
         return zpl.toString();
     }
 
-    /** 输出一行字段：顶部小字标签 + 下方大字值；值超长时按 ^FB 自动折到最多 2 行。坐标/字号按缩放比换算。 */
-    private void appendField(StringBuilder zpl, int y, String label, String value, int fbWidth, double sx, double sy) {
-        text(zpl, 12, y, 22, z(label), sx, sy, false);
-        int fx = scale(12, sx);
+    /**
+     * 输出一栏字段：顶部小字标签 + 下方大字值；值超长时按 ^FB 自动折到最多 maxLines 行。
+     * 坐标/字号按缩放比换算，x/y 为参考画布(640×400)坐标。
+     */
+    private void appendCol(StringBuilder zpl, int x, int y, String label, String value, int fbWidth, int valueFont, int maxLines, double sx, double sy) {
+        text(zpl, x, y, 22, z(label), sx, sy, false);
+        int fx = scale(x, sx);
         int fy = scale(y + 30, sy);
-        int font = scale(32, sy);
+        int font = scale(valueFont, sy);
         int fb = scale(fbWidth, sx);
-        int lineGap = Math.max(0, scale(4, sy));
+        int lineGap = Math.max(0, scale(3, sy));
         zpl.append("^FO").append(fx).append(",").append(fy)
            .append("^A0N,").append(font).append(",").append(font)
-           .append("^FB").append(fb).append(",2,").append(lineGap).append(",L,0^FD").append(z(value)).append("^FS\n");
+           .append("^FB").append(fb).append(",").append(Math.max(1, maxLines)).append(",").append(lineGap).append(",L,0^FD").append(z(value)).append("^FS\n");
     }
 
     /** 输出一段文字，坐标与字号按缩放比换算；reversed=true 时反白(^FR)用于黑底紧急条。 */
@@ -346,8 +347,8 @@ public class PrintJobService {
     /** 标签几何：由系统参数 dpi + 宽高(mm) 计算的实际点数。读取失败时回退 203dpi/35×95mm(=280×760)。 */
     private LabelGeometry labelGeometry() {
         int dpi = readIntConfig(CFG_DPI, 203, 100, 600);
-        double widthMm = readDoubleConfig(CFG_WIDTH_MM, 35.0, 5.0, 300.0);
-        double heightMm = readDoubleConfig(CFG_HEIGHT_MM, 95.0, 5.0, 500.0);
+        double widthMm = readDoubleConfig(CFG_WIDTH_MM, 80.0, 5.0, 300.0);
+        double heightMm = readDoubleConfig(CFG_HEIGHT_MM, 50.0, 5.0, 500.0);
         int wDots = (int) Math.round(widthMm * dpi / 25.4);
         int hDots = (int) Math.round(heightMm * dpi / 25.4);
         return new LabelGeometry(Math.max(1, wDots), Math.max(1, hDots));

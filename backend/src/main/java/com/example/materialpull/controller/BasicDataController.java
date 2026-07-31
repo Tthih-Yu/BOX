@@ -7,12 +7,19 @@ import com.example.materialpull.enums.UserRole;
 import com.example.materialpull.repository.*;
 import com.example.materialpull.security.RequireRoles;
 import com.example.materialpull.service.BasicDataService;
+import com.example.materialpull.service.LogExportService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
+import java.util.Map;
 
 @RestController
 @RequestMapping
@@ -25,6 +32,11 @@ public class BasicDataController {
     private final InventoryRepository inventoryRepository;
     private final SystemConfigRepository configRepository;
     private final BasicDataService service;
+    private final LogExportService logExportService;
+
+    private static final List<String> MAPPING_EXPORT_COLUMNS = List.of(
+            "mappingOrder", "lineMaterialCode", "warehouseCode", "boxSize", "quantity",
+            "deliveryType", "warehouseLocation", "deliveryAddress", "remark", "deliveryArea", "warehouseMaterialCode");
 
     @GetMapping("/materials")
     @RequireRoles({UserRole.PLANNER, UserRole.WAREHOUSE, UserRole.LINE, UserRole.VIEWER})
@@ -49,6 +61,33 @@ public class BasicDataController {
     @DeleteMapping("/mappings/{id}")
     @RequireRoles({UserRole.PLANNER})
     public ApiResponse<Void> delMapping(@PathVariable Long id) { service.disableMapping(id); return ApiResponse.ok(null); }
+
+    @GetMapping("/mappings/export")
+    @RequireRoles({UserRole.PLANNER, UserRole.WAREHOUSE, UserRole.VIEWER})
+    public ResponseEntity<byte[]> exportMappings() {
+        byte[] body = logExportService.exportToXlsx("料号映射", service.exportMappings(), MAPPING_EXPORT_COLUMNS);
+        String filename = logExportService.buildFileName("mappings");
+        String encoded = URLEncoder.encode(filename, StandardCharsets.UTF_8).replace("+", "%20");
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.parseMediaType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"));
+        headers.set(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + filename + "\"; filename*=UTF-8''" + encoded);
+        headers.setContentLength(body.length);
+        return new ResponseEntity<>(body, headers, 200);
+    }
+
+    @DeleteMapping("/mappings")
+    @RequireRoles({UserRole.PLANNER})
+    public ApiResponse<Map<String, Object>> deleteMappings(@RequestBody(required = false) MappingDeleteRequest req) {
+        if (req == null) req = new MappingDeleteRequest();
+        return ApiResponse.ok(service.deleteMappings(req.scope, req.deliveryArea, req.ids));
+    }
+
+    public static class MappingDeleteRequest {
+        /** ALL=全部；AREA=按配送区域；其余按 ids 删除。 */
+        public String scope;
+        public String deliveryArea;
+        public List<Long> ids;
+    }
 
     @GetMapping("/station-materials")
     @RequireRoles({UserRole.PLANNER, UserRole.WAREHOUSE, UserRole.LINE, UserRole.VIEWER})

@@ -44,10 +44,10 @@ public class SystemConfigBootstrapRunner implements CommandLineRunner {
                 "按角色设置登录后可见的菜单路径。默认普通用户(只读)仅可见仓库补货任务、出货标签打印、料号映射。请在“系统管理-菜单权限”页编辑，勿手改。");
         ensure("print.label.dpi", "203", "标签打印机分辨率(dpi)",
                 "斑马打印机分辨率，决定 ZPL 标签排版的点数换算。常见 203 或 300。换成 300dpi 打印机时改为 300，否则标签会被放大导致内容显示不全。改后下一张自动打印即生效，无需重启。");
-        ensure("print.label.width-mm", "35", "标签物理宽度(mm)",
-                "标签纸的实际宽度(毫米)，竖版标签一般 35。与 dpi 一起决定打印宽度点数。");
-        ensure("print.label.height-mm", "95", "标签物理高度(mm)",
-                "标签纸的实际高度(毫米)，竖版标签一般 95。与 dpi 一起决定标签长度点数。");
+        ensure("print.label.width-mm", "80", "标签物理宽度(mm)",
+                "标签纸的实际宽度(毫米)，横版标签为 80。与 dpi 一起决定打印宽度点数。");
+        ensure("print.label.height-mm", "50", "标签物理高度(mm)",
+                "标签纸的实际高度(毫米)，横版标签为 50。与 dpi 一起决定标签长度点数。");
     }
 
     private void ensure(String key, String defaultValue, String name, String remark) {

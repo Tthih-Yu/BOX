@@ -7,7 +7,17 @@
           <el-button-group>
             <el-button size="small" :type="status===''?'primary':''" @click="selectStatus('')">进行中</el-button>
             <el-button size="small" :type="status==='ALL'?'primary':''" @click="selectStatus('ALL')">全部</el-button>
-            <el-button v-for="s in statuses" :key="s.value" size="small" :type="status===s.value?'primary':''" @click="selectStatus(s.value)">{{ s.label }}</el-button>
+            <el-button v-for="s in primaryStatuses" :key="s.value" size="small" :type="status===s.value?'primary':''" @click="selectStatus(s.value)">{{ s.label }}</el-button>
+            <el-dropdown v-if="moreStatuses.length" trigger="click" @command="selectStatus">
+              <el-button size="small" :type="isMoreStatusActive?'primary':''">
+                {{ isMoreStatusActive ? activeMoreStatusLabel : '更多状态' }}<el-icon class="el-icon--right"><ArrowDown /></el-icon>
+              </el-button>
+              <template #dropdown>
+                <el-dropdown-menu>
+                  <el-dropdown-item v-for="s in moreStatuses" :key="s.value" :command="s.value" :class="{ 'is-active-status': status===s.value }">{{ s.label }}</el-dropdown-item>
+                </el-dropdown-menu>
+              </template>
+            </el-dropdown>
           </el-button-group>
         </div>
         <div class="status-menu">
@@ -18,6 +28,7 @@
             <el-button size="small" :type="printFilter==='PRINTED'?'success':''" @click="printFilter='PRINTED'">已打印 <span class="pf-count">({{ printCounts.printed }})</span></el-button>
           </el-button-group>
         </div>
+        <el-input v-model="keyword" clearable placeholder="搜索：任务号/物料/工位/仓库/数量等全部字段" style="width:300px;margin-left:8px"><template #prefix><el-icon><Search /></el-icon></template></el-input>
         <el-date-picker v-model="date" type="date" value-format="YYYY-MM-DD" placeholder="按申请日期筛选" clearable style="width:180px;margin-left:8px" @change="load" />
         <el-button @click="load" style="margin-left:8px">刷新</el-button>
         <el-select v-model="autoRefreshSec" style="width:150px;margin-left:8px" @change="onAutoRefreshChange">
@@ -33,6 +44,7 @@
           <el-button size="small" :type="sortState===null?'primary':''" @click="resetSort">默认（配送区域→仓库地址）</el-button>
           <el-button size="small" :type="sortState?.prop==='deliveryArea'?'primary':''" @click="sortBy('deliveryArea')">配送区域 {{ sortArrow('deliveryArea') }}</el-button>
           <el-button size="small" :type="sortState?.prop==='warehouseAddress'?'primary':''" @click="sortBy('warehouseAddress')">仓库地址 {{ sortArrow('warehouseAddress') }}</el-button>
+          <el-button size="small" :type="sortState?.prop==='createdAt'?'primary':''" @click="sortByTime">申请时间 {{ sortArrow('createdAt') }}</el-button>
         </el-button-group>
         <el-button v-if="canManagePrint" type="warning" plain style="margin-left:12px" @click="openPrintSettings">定时打印设置</el-button>
       </div>
@@ -164,17 +176,21 @@
 
     <el-dialog v-model="printDialog" title="仓库条形码标签预览" width="560px">
       <div v-if="printRow" class="warehouse-label-preview">
-        <div class="label-usage" :class="{ urgent: isUrgent(printRow) }">{{ isUrgent(printRow) ? '紧急配送(备用)' : '正常配送(使用)' }}</div>
-        <div class="label-barcode" v-html="barcodeSvg || ''"></div>
-        <div class="label-line material"><span>物料名称</span><b>{{ printRow.materialCode || printRow.materialName || '-' }}</b></div>
-        <div class="label-line addr"><span>仓库地址</span><b>{{ printRow.warehouseAddress || printRow.warehouseLocation || ' ' }}</b></div>
-        <div class="label-line station"><span>发送工位地址</span><b>{{ printRow.sendStationAddress || printRow.deliveryAddress || printRow.stationName || printRow.stationCode || ' ' }}</b></div>
-        <div class="label-two">
-          <div><span>盒子大小</span><b>{{ printRow.boxSize || '-' }}</b></div>
-          <div><span>数量</span><b>{{ printRow.requestQty || '-' }}</b></div>
+        <div class="wl-top">
+          <div class="wl-usage" :class="{ urgent: isUrgent(printRow) }">{{ isUrgent(printRow) ? '紧急配送(备用)' : '正常配送(使用)' }}</div>
+          <div class="wl-barcode" v-html="barcodeSvg || ''"></div>
         </div>
-        <div class="label-line worker"><span>送料人工号</span><b>{{ printRow.delivererEmployeeNo || '' }}</b></div>
-        <div class="label-foot">任务号：{{ printRow.taskNo }}</div>
+        <div class="wl-mid">
+          <div class="wl-cell"><span>物料名称</span><b>{{ printRow.materialCode || printRow.materialName || '-' }}</b></div>
+          <div class="wl-cell"><span>仓储地址</span><b>{{ printRow.warehouseAddress || printRow.warehouseLocation || ' ' }}</b></div>
+          <div class="wl-cell"><span>货架工位地址</span><b class="small">{{ printRow.sendStationAddress || printRow.deliveryAddress || printRow.stationName || printRow.stationCode || ' ' }}</b></div>
+        </div>
+        <div class="wl-bottom">
+          <div class="wl-cell"><span>盒子大小</span><b>{{ printRow.boxSize || '-' }}</b></div>
+          <div class="wl-cell"><span>数量</span><b>{{ printRow.requestQty ?? '-' }}</b></div>
+          <div class="wl-cell"><span>送货人工号</span><b class="small">{{ printRow.delivererEmployeeNo || '-' }}</b></div>
+          <div class="wl-cell"><span>任务号</span><b class="tiny">{{ printRow.taskNo || '-' }}</b></div>
+        </div>
       </div>
      
       <el-form label-width="90px" style="margin-top:14px">
@@ -223,15 +239,22 @@ import { onMounted, onUnmounted, ref, computed } from 'vue'
 import { get, post, del, tagType } from '../api'
 import { loadBusinessMeta } from '../meta'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { CopyDocument, WarningFilled } from '@element-plus/icons-vue'
+import { CopyDocument, WarningFilled, ArrowDown, Search } from '@element-plus/icons-vue'
 import { canTaskAction, TASK_TABLE_ACTIONS } from '../permissions'
 import { runtimePrinterName, saveRuntimePrinterName } from '../config'
 import { connectRealtime } from '../realtime'
 const rows = ref<any[]>([])
 const status = ref('')
 const printFilter = ref('')
+const keyword = ref('')
 const date = ref('')
 const statuses = ref<{label:string;value:string}[]>([])
+// 常用状态留按钮；其余中间流转态(接单/拣料/配送/到达等)收进「更多状态」下拉，避免工具栏过长。
+const PRIMARY_STATUS_VALUES = ['COMPLETED', 'EXCEPTION', 'CANCELLED']
+const primaryStatuses = computed(() => statuses.value.filter(s => PRIMARY_STATUS_VALUES.includes(s.value)))
+const moreStatuses = computed(() => statuses.value.filter(s => !PRIMARY_STATUS_VALUES.includes(s.value)))
+const isMoreStatusActive = computed(() => moreStatuses.value.some(s => s.value === status.value))
+const activeMoreStatusLabel = computed(() => moreStatuses.value.find(s => s.value === status.value)?.label || '更多状态')
 const printDialog = ref(false)
 const printRow = ref<any>(null)
 const barcodeSvg = ref('')
@@ -332,16 +355,28 @@ const printCounts = computed(() => {
   for (const r of rows.value){ if (isPrinted(r)) printed++; else unprinted++ }
   return { printed, unprinted }
 })
+function searchableText(row:any){
+  return Object.values(row || {})
+    .filter(v => v !== null && v !== undefined && typeof v !== 'object')
+    .join(' ')
+    .toLowerCase()
+}
 const filteredRows = computed(() => {
-  if (printFilter.value === 'PRINTED') return rows.value.filter(isPrinted)
-  if (printFilter.value === 'UNPRINTED') return rows.value.filter(r => !isPrinted(r))
-  return rows.value
+  let list = rows.value
+  if (printFilter.value === 'PRINTED') list = list.filter(isPrinted)
+  else if (printFilter.value === 'UNPRINTED') list = list.filter(r => !isPrinted(r))
+  const tokens = keyword.value.trim().toLowerCase().split(/\s+/).filter(Boolean)
+  if (tokens.length) list = list.filter(row => { const text = searchableText(row); return tokens.every(t => text.includes(t)) })
+  return list
 })
 const sortedRows = computed(() => {
   const list = [...filteredRows.value]
   const st = sortState.value
   if (st && st.order){
     const dir = st.order === 'ascending' ? 1 : -1
+    if (st.prop === 'createdAt'){
+      return list.sort((a,b) => (rowTime(a) - rowTime(b)) * dir)
+    }
     return list.sort((a,b) => cmp(a[st.prop], b[st.prop]) * dir)
   }
   // 默认排序：第一优先级“配送区域”，第二优先级“仓库地址”。
@@ -361,6 +396,17 @@ function sortBy(prop:string){
     sortState.value = sortState.value.order === 'ascending' ? { prop, order: 'descending' } : null
   } else {
     sortState.value = { prop, order: 'ascending' }
+  }
+}
+function rowTime(row:any){
+  const d = new Date(row?.createdAt || row?.receivedAt || row?.acceptedAt || 0)
+  return isNaN(d.getTime()) ? 0 : d.getTime()
+}
+function sortByTime(){
+  if (sortState.value?.prop === 'createdAt'){
+    sortState.value = sortState.value.order === 'descending' ? { prop:'createdAt', order:'ascending' } : { prop:'createdAt', order:'descending' }
+  } else {
+    sortState.value = { prop:'createdAt', order:'descending' }
   }
 }
 function resetSort(){ sortState.value = null }
@@ -540,7 +586,7 @@ async function openPrint(row:any){
   const code = row.warehouseCode || row.barcodeValue
   if (code) {
     try {
-      const result:any = await post('/labels/code/render', { text: String(code), format: 'CODE_128', width: 760, height: 230, includeText: true })
+      const result:any = await post('/labels/code/render', { text: String(code), format: 'CODE_128', width: 520, height: 150, includeText: true })
       barcodeSvg.value = result.svg
     } catch (e:any) {
       ElMessage.error(e?.response?.data?.message || e?.message || '条形码生成失败')
@@ -562,50 +608,63 @@ async function browserPrint(){
   const worker = r.delivererEmployeeNo || ''
   const taskNo = r.taskNo || ''
   const esc = (v:any) => String(v ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
-  // 标签物理尺寸 3.5cm(宽) × 9.5cm(高) 竖版。驱动忠实按排版方向打印，故内容不旋转，直接竖版输出。
+  // 标签物理尺寸 80mm(宽) × 50mm(高) 横版：上=用途药丸+条码，中=三栏，下=四栏。
   const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>标签_${esc(taskNo)}</title>
   <style>
-  @page{ size:35mm 95mm; margin:0; }
+  @page{ size:80mm 50mm; margin:0; }
   *{ box-sizing:border-box; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
   html,body{ margin:0; padding:0; }
-  .lbl{ width:35mm; height:95mm; border:0.4mm solid #000; color:#000; font-family:'Microsoft YaHei',Arial,sans-serif; display:flex; flex-direction:column; }
-  .usage{ height:7mm; display:flex; align-items:center; justify-content:center; font-size:3.8mm; font-weight:800; letter-spacing:0.2mm; border-bottom:0.4mm solid #000; }
-  .usage.urgent{ background:#000; color:#fff; }
-  .bc{ height:18mm; display:flex; align-items:center; justify-content:center; padding:1mm 2mm; border-bottom:0.4mm solid #000; overflow:hidden; }
-  .bc svg{ width:100%; height:15mm; }
-  .row{ padding:0.8mm 2mm; border-bottom:0.4mm solid #000; display:flex; flex-direction:column; justify-content:center; gap:0.4mm; min-height:0; overflow:hidden; }
-  .row.material{ flex:1.15; }
-  .row.addr{ flex:1; }
-  .row.station{ flex:1.35; }
-  .row.worker{ flex:1; }
-  .row .k{ font-size:2.5mm; color:#000; font-weight:600; line-height:1; }
-  .row .v{ font-size:3.6mm; font-weight:800; word-break:break-all; line-height:1.1; }
-  .row.station .v{ font-size:3.2mm; }
-  .two{ display:flex; flex:1.25; border-bottom:0.4mm solid #000; min-height:0; }
-  .two>div{ flex:1; padding:0.8mm 2mm; display:flex; flex-direction:column; justify-content:center; gap:0.4mm; overflow:hidden; }
-  .two>div:first-child{ border-right:0.4mm solid #000; }
-  .two .k{ font-size:2.5mm; color:#000; font-weight:600; line-height:1; }
-  .two .v{ font-size:3.4mm; font-weight:800; word-break:break-all; line-height:1.1; }
-  .foot{ height:6mm; display:flex; align-items:center; padding:0 2mm; font-size:2.6mm; font-weight:600; color:#000; white-space:nowrap; overflow:hidden; }
+  .lbl{ width:80mm; height:50mm; border:0.4mm solid #000; color:#000; font-family:'Microsoft YaHei',Arial,sans-serif; display:flex; flex-direction:column; }
+  .top{ height:16mm; flex:none; display:flex; align-items:center; gap:2mm; padding:0 3mm; border-bottom:0.4mm solid #000; }
+  .usage{ flex:none; background:#000; color:#fff; border-radius:4mm; padding:1.6mm 3mm; font-size:3.4mm; font-weight:800; white-space:nowrap; }
+  .bc{ flex:1; display:flex; align-items:center; justify-content:center; overflow:hidden; }
+  .bc svg{ width:100%; height:13mm; }
+  .mid{ display:flex; flex:1; border-bottom:0.4mm solid #000; min-height:0; }
+  .mid>.cell{ flex:1; border-right:0.4mm solid #000; }
+  .mid>.cell:last-child{ border-right:0; }
+  .bottom{ display:flex; flex:1; min-height:0; }
+  .bottom>.cell{ flex:1; border-right:0.4mm solid #000; }
+  .bottom>.cell:last-child{ border-right:0; }
+  .cell{ padding:1mm 2mm; display:flex; flex-direction:column; justify-content:center; gap:0.6mm; min-height:0; overflow:hidden; }
+  .cell .k{ font-size:2.3mm; color:#000; font-weight:600; line-height:1; }
+  .cell .v{ font-size:4mm; font-weight:800; word-break:break-all; line-height:1.1; }
+  .cell .v.small{ font-size:3mm; }
+  .cell .v.tiny{ font-size:2.2mm; letter-spacing:0.1mm; }
   </style></head><body>
   <div class="lbl">
-    <div class="usage ${urgent?'urgent':''}">${esc(usage)}</div>
-    <div class="bc">${barcodeSvg.value || ''}</div>
-    <div class="row material"><div class="k">物料名称</div><div class="v">${esc(material)}</div></div>
-    <div class="row addr"><div class="k">仓库地址</div><div class="v">${esc(from)}</div></div>
-    <div class="row station"><div class="k">发送工位地址</div><div class="v">${esc(to)}</div></div>
-    <div class="two"><div><div class="k">盒子大小</div><div class="v">${esc(boxSize)}</div></div><div><div class="k">数量</div><div class="v">${esc(qty)}</div></div></div>
-    <div class="row worker"><div class="k">送料人工号</div><div class="v">${esc(worker)}</div></div>
-    <div class="foot">任务号：${esc(taskNo)}</div>
+    <div class="top">
+      <div class="usage">${esc(usage)}</div>
+      <div class="bc">${barcodeSvg.value || ''}</div>
+    </div>
+    <div class="mid">
+      <div class="cell"><div class="k">物料名称</div><div class="v">${esc(material)}</div></div>
+      <div class="cell"><div class="k">仓储地址</div><div class="v">${esc(from)}</div></div>
+      <div class="cell"><div class="k">货架工位地址</div><div class="v small">${esc(to)}</div></div>
+    </div>
+    <div class="bottom">
+      <div class="cell"><div class="k">盒子大小</div><div class="v">${esc(boxSize)}</div></div>
+      <div class="cell"><div class="k">数量</div><div class="v">${esc(qty)}</div></div>
+      <div class="cell"><div class="k">送货人工号</div><div class="v small">${esc(worker) || '-'}</div></div>
+      <div class="cell"><div class="k">任务号</div><div class="v tiny">${esc(taskNo)}</div></div>
+    </div>
   </div>
-  <script>window.onload=function(){setTimeout(function(){window.print();},150);};window.onafterprint=function(){window.close();};<\/script>
   </body></html>`
-  const w = window.open('', '_blank', 'width=420,height=760')
+  const w = window.open('', '_blank', 'width=760,height=520')
   if (!w) { ElMessage.warning('浏览器拦截了打印窗口，请允许本站弹出窗口后重试'); return }
   w.document.open()
   w.document.write(html)
   w.document.close()
-  ElMessage.success('已调起浏览器打印，请在弹出的对话框选斑马打印机，纸张 35×95mm，缩放100%、边距无；打印后该任务将自动标记为已完成')
+  // 打印从父窗口(脚本合规于 CSP 'self')触发；子窗口内联脚本会被 CSP script-src 'self' 拦截导致打印不弹。
+  const triggerPrint = () => {
+    try {
+      w.focus()
+      w.onafterprint = () => { try { w.close() } catch {} }
+      w.print()
+    } catch { /* 用户可在弹出的标签窗口内手动 Ctrl+P 打印 */ }
+  }
+  if (w.document.readyState === 'complete') setTimeout(triggerPrint, 200)
+  else w.onload = () => setTimeout(triggerPrint, 200)
+  ElMessage.success('已调起浏览器打印，请在弹出的对话框选斑马打印机，纸张 80×50mm（横向），缩放100%、边距无；打印后该任务将自动标记为已完成')
   try {
     await post('/print-jobs', { taskNo: r.taskNo, printerName: (printerName.value.trim() || '浏览器打印'), printType: 'WAREHOUSE_BARCODE_LABEL', printChannel: 'BROWSER' })
     load()
@@ -664,12 +723,29 @@ onUnmounted(()=>{
 
 <style scoped>
 .status-menu{display:inline-flex;align-items:center;gap:8px;flex-wrap:wrap;margin-right:8px;margin-bottom:8px;vertical-align:middle}.status-menu-label{color:#64748b;font-size:13px;font-weight:600}.status-menu .el-button{margin-left:0}
+.is-active-status{color:var(--el-color-primary);font-weight:600;background:var(--el-color-primary-light-9)}
 .refresh-tip{ margin-left: 10px; color: #64748b; font-size: 12px; }
 .muted-text{ color:#94a3b8; font-size:12px; }
 .pf-count{ color:#94a3b8; font-size:12px; margin-left:2px; }
 .ps-hint{ margin-left: 10px; color: #94a3b8; font-size: 12px; }
 .sort-label{ margin-left: 12px; color: #64748b; font-size: 13px; }
-.warehouse-label-preview{width:245px;height:665px;border:2px solid #111;background:#fff;color:#111;margin:0 auto;font-family:Arial,'Microsoft YaHei',sans-serif;box-sizing:border-box;display:flex;flex-direction:column}.label-usage{height:50px;flex:none;display:flex;align-items:center;justify-content:center;font-size:22px;font-weight:800;letter-spacing:1px;border-bottom:2px solid #111}.label-usage.urgent{background:#111;color:#fff}.label-barcode{height:126px;flex:none;border-bottom:2px solid #111;display:flex;align-items:center;justify-content:center;padding:6px 12px;overflow:hidden}.label-barcode :deep(svg){width:100%;height:105px;display:block}.label-line{display:flex;flex-direction:column;justify-content:center;gap:2px;border-bottom:2px solid #111;min-height:0;overflow:hidden;padding:4px 12px}.label-line.material{flex:1.15}.label-line.addr{flex:1}.label-line.station{flex:1.35}.label-line.worker{flex:1}.label-line span{font-size:13px;font-weight:600;color:#333;line-height:1}.label-line b{font-size:22px;font-weight:800;word-break:break-all;line-height:1.1}.label-line.station b{font-size:19px}.label-two{display:flex;flex:1.25;border-bottom:2px solid #111;min-height:0}.label-two>div{flex:1;display:flex;flex-direction:column;justify-content:center;gap:2px;min-height:0;overflow:hidden;padding:4px 12px}.label-two>div:first-child{border-right:2px solid #111}.label-two span{font-size:13px;font-weight:600;color:#333;line-height:1}.label-two b{font-size:21px;font-weight:800;word-break:break-all;line-height:1.1}.label-foot{height:32px;flex:none;font-size:13px;font-weight:600;color:#333;display:flex;align-items:center;padding:0 12px;overflow:hidden;white-space:nowrap}
+.warehouse-label-preview{width:480px;height:300px;border:2px solid #111;background:#fff;color:#111;margin:0 auto;font-family:Arial,'Microsoft YaHei',sans-serif;box-sizing:border-box;display:flex;flex-direction:column}
+.warehouse-label-preview .wl-top{display:flex;align-items:center;gap:10px;height:96px;flex:none;border-bottom:2px solid #111;padding:0 14px}
+.warehouse-label-preview .wl-usage{flex:none;background:#111;color:#fff;border-radius:22px;padding:10px 16px;font-size:18px;font-weight:800;white-space:nowrap}
+.warehouse-label-preview .wl-usage.urgent{background:#111}
+.warehouse-label-preview .wl-barcode{flex:1;display:flex;align-items:center;justify-content:center;overflow:hidden}
+.warehouse-label-preview .wl-barcode :deep(svg){width:100%;height:82px;display:block}
+.warehouse-label-preview .wl-mid{display:flex;flex:1;border-bottom:2px solid #111;min-height:0}
+.warehouse-label-preview .wl-mid>.wl-cell{flex:1;border-right:2px solid #111}
+.warehouse-label-preview .wl-mid>.wl-cell:last-child{border-right:0}
+.warehouse-label-preview .wl-bottom{display:flex;flex:1;min-height:0}
+.warehouse-label-preview .wl-bottom>.wl-cell{flex:1;border-right:2px solid #111}
+.warehouse-label-preview .wl-bottom>.wl-cell:last-child{border-right:0}
+.warehouse-label-preview .wl-cell{display:flex;flex-direction:column;justify-content:center;gap:3px;min-height:0;overflow:hidden;padding:6px 10px}
+.warehouse-label-preview .wl-cell span{font-size:12px;font-weight:600;color:#333;line-height:1}
+.warehouse-label-preview .wl-cell b{font-size:22px;font-weight:800;word-break:break-all;line-height:1.1}
+.warehouse-label-preview .wl-cell b.small{font-size:17px}
+.warehouse-label-preview .wl-cell b.tiny{font-size:12px;letter-spacing:.2px}
 
 .task-detail{
   position: sticky;

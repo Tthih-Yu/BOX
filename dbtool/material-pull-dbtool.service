@@ -1,0 +1,18 @@
+[Unit]
+Description=Material Pull DB Tool (数据库可视化工具)
+After=network-online.target mysql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=tthih
+Group=tthih
+WorkingDirectory=/home/tthih/IE/dbtool
+ExecStart=/usr/bin/python3 /home/tthih/IE/dbtool/server.py
+Restart=on-failure
+RestartSec=5
+StandardOutput=append:/home/tthih/IE/dbtool/dbtool.log
+StandardError=append:/home/tthih/IE/dbtool/dbtool.log
+
+[Install]
+WantedBy=multi-user.target

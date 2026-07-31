@@ -87,6 +87,9 @@ api.interceptors.response.use(
 
 export const get = <T=any>(url:string, params?:any) => api.get<any,T>(url, { params })
 export const post = <T=any>(url:string, data?:any, config?:any) => api.post<any,T>(url, data, config)
+
+/** 导入上传专用超时：大文件的上传与逐行落库远超普通请求的 30s 默认值。 */
+export const UPLOAD_TIMEOUT_MS = 600000
 export const del = <T=any>(url:string, data?:any) => api.delete<any,T>(url, data !== undefined ? { data } : undefined)
 
 export async function downloadBlob(url:string, fallbackName:string, params?:any) {

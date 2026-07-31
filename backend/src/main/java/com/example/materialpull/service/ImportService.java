@@ -51,6 +51,9 @@ public class ImportService {
     private final MaterialMappingRepository mappingRepository;
     private final DataFormatter dataFormatter = new DataFormatter();
 
+    /** 批量落库的攒批行数。与 hibernate.jdbc.batch_size 同量级，兼顾往返次数与单事务体积。 */
+    private static final int WRITE_BATCH_SIZE = 500;
+
     /**
      * 各导入类型的规范列顺序（与下载模板表头一致）。用于两件事：
      * 1) 当文件首行是表头时，按表头名称定位列（顺序可乱、可多列）；
@@ -126,8 +129,13 @@ public class ImportService {
     }
 
     public ImportBatchEntity importExcel(String type, MultipartFile file, String operator) throws Exception {
+        return importExcel(type, file, operator, false);
+    }
+
+    public ImportBatchEntity importExcel(String type, MultipartFile file, String operator, boolean overwrite) throws Exception {
         if (file == null || file.isEmpty()) throw new BusinessException(ErrorCode.PARAM_ERROR, "导入文件不能为空");
         String importType = validateImportType(type);
+        if (overwrite) applyOverwrite(importType);
         String fileName = Optional.ofNullable(file.getOriginalFilename()).orElse("");
         validateImportFileName(fileName);
 
@@ -147,6 +155,7 @@ public class ImportService {
                 case XLS -> readLegacyXls(file, acc);
                 default -> streamXlsx(file, acc);
             }
+            acc.finish();
             batch.setTotalRows(acc.total);
             batch.setSuccessRows(acc.success);
             batch.setFailedRows(acc.fail);
@@ -160,6 +169,16 @@ public class ImportService {
             markFailed(batch);
             throw new BusinessException(ErrorCode.PARAM_ERROR, "导入文件解析失败，请确认文件是 xlsx/xlsm/xls/csv 格式：" + e.getMessage());
         }
+    }
+
+    /** 覆盖上传：导入新数据前先清空该类型的现存数据。目前仅料号映射支持。 */
+    @Transactional
+    public void applyOverwrite(String importType) {
+        if ("mappings".equals(importType)) {
+            mappingRepository.deleteAllInBatch();
+            return;
+        }
+        throw new BusinessException(ErrorCode.PARAM_ERROR, "该导入类型不支持覆盖上传：" + importType);
     }
 
     private enum FileFormat { XLSX, XLS, CSV }
@@ -190,6 +209,9 @@ public class ImportService {
         private final ImportBatchEntity batch;
         private Map<String, Integer> headerIndex;
         private boolean headerResolved = false;
+        /** 待批量写入的映射行（含行号，便于写入失败时定位到具体行）。 */
+        private final List<PendingMapping> mappingBuffer = new ArrayList<>();
+        private final List<ImportErrorEntity> errorBuffer = new ArrayList<>();
         int total = 0, success = 0, fail = 0;
 
         BatchAccumulator(String type, ImportBatchEntity batch) {
@@ -208,24 +230,71 @@ public class ImportService {
             if (isBlankCells(cells)) return;
             total++;
             try {
-                importRow(type, new RowView(cells, headerIndex), batch.getOperator());
-                success++;
+                RowView row = new RowView(cells, headerIndex);
+                if ("mappings".equals(type)) {
+                    // 映射行只做内存校验，攒够一批再统一落库；DB 往返次数从 O(行数) 降到 O(行数/批大小)。
+                    mappingBuffer.add(new PendingMapping(buildMapping(row), cells, rowIndex));
+                    if (mappingBuffer.size() >= WRITE_BATCH_SIZE) flushMappings();
+                } else {
+                    importRow(type, row, batch.getOperator());
+                    success++;
+                }
             } catch (Exception ex) {
-                fail++;
-                ImportErrorEntity error = new ImportErrorEntity();
-                error.setBatchNo(batch.getBatchNo());
-                error.setRowNo(rowIndex + 1);
-                error.setRawData(cellsToString(cells));
-                error.setErrorMessage(ex.getMessage());
-                errorRepository.save(error);
+                addError(cells, rowIndex, ex);
             }
         }
+
+        /** 解析结束后调用，把尾批数据与错误明细写完。 */
+        void finish() {
+            flushMappings();
+            flushErrors();
+        }
+
+        private void flushMappings() {
+            if (mappingBuffer.isEmpty()) return;
+            List<PendingMapping> pending = List.copyOf(mappingBuffer);
+            mappingBuffer.clear();
+            try {
+                basicDataService.upsertMappingsByWarehouseCode(pending.stream().map(PendingMapping::entity).toList());
+                success += pending.size();
+            } catch (Exception batchFailure) {
+                // 批量写入失败无法定位到具体行，退化为逐行 upsert，把错误准确归到出错的那一行。
+                for (PendingMapping item : pending) {
+                    try {
+                        basicDataService.upsertMappingsByWarehouseCode(List.of(item.entity()));
+                        success++;
+                    } catch (Exception rowFailure) {
+                        addError(item.cells(), item.rowIndex(), rowFailure);
+                    }
+                }
+            }
+        }
+
+        private void addError(List<String> cells, int rowIndex, Exception ex) {
+            fail++;
+            ImportErrorEntity error = new ImportErrorEntity();
+            error.setBatchNo(batch.getBatchNo());
+            error.setRowNo(rowIndex + 1);
+            error.setRawData(cellsToString(cells));
+            error.setErrorMessage(ex.getMessage());
+            errorBuffer.add(error);
+            if (errorBuffer.size() >= WRITE_BATCH_SIZE) flushErrors();
+        }
+
+        private void flushErrors() {
+            if (errorBuffer.isEmpty()) return;
+            errorRepository.saveAll(errorBuffer);
+            errorBuffer.clear();
+        }
     }
+
+    /** 缓冲中的一行映射：实体本身，加上原始单元格与行号用于错误回溯。 */
+    private record PendingMapping(MaterialMappingEntity entity, List<String> cells, int rowIndex) {}
 
     private void importRow(String type, RowView row, String operator) {
         switch (type) {
             case "materials" -> saveMaterial(row);
-            case "mappings" -> saveMapping(row);
+            case "mappings" -> basicDataService.saveMapping(buildMapping(row));
             case "stationMaterials" -> saveStationMaterial(row);
             case "factoryLabels" -> saveFactoryLabel(row, operator);
             case "siteLabels" -> saveSiteLabel(row, operator);
@@ -366,7 +435,8 @@ public class ImportService {
         basicDataService.saveMaterial(m);
     }
 
-    private void saveMapping(RowView r) {
+    /** 把一行数据解析成映射实体并完成字段校验，不落库。 */
+    private MaterialMappingEntity buildMapping(RowView r) {
         MaterialMappingEntity m = new MaterialMappingEntity();
         m.setMappingOrder(r.intValOrDefault("mappingOrder", 1));
         m.setLineMaterialCode(r.str("lineMaterialCode"));
@@ -379,12 +449,8 @@ public class ImportService {
         m.setDeliveryAddress(r.str("deliveryAddress"));
         m.setRemark(r.str("remark"));
         m.setDeliveryArea(r.str("deliveryArea").isBlank() ? "1" : r.str("deliveryArea"));
-        // 替换语义：同一仓库代号已有启用映射时，覆盖现有记录而非新增（避免“该仓库代号已有启用映射”报错）。
-        if (m.getWarehouseCode() != null && !m.getWarehouseCode().isBlank()) {
-            mappingRepository.findByWarehouseCodeAndEnabledTrue(m.getWarehouseCode())
-                    .ifPresent(existing -> m.setId(existing.getId()));
-        }
-        basicDataService.saveMapping(m);
+        basicDataService.normalizeMapping(m);
+        return m;
     }
 
     private void saveStationMaterial(RowView r) {

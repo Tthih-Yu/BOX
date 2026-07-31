@@ -27,8 +27,10 @@ public class ImportController {
     private final ImportErrorRepository errorRepository;
 
     @PostMapping("/{type}")
-    public ApiResponse<ImportBatchEntity> upload(@PathVariable String type, @RequestParam MultipartFile file) throws Exception {
-        return ApiResponse.ok(importService.importExcel(type, file, OperatorResolver.currentOperator()));
+    public ApiResponse<ImportBatchEntity> upload(@PathVariable String type,
+                                                 @RequestParam MultipartFile file,
+                                                 @RequestParam(value = "overwrite", required = false, defaultValue = "false") boolean overwrite) throws Exception {
+        return ApiResponse.ok(importService.importExcel(type, file, OperatorResolver.currentOperator(), overwrite));
     }
 
     @GetMapping public ApiResponse<List<ImportBatchEntity>> batches() { return ApiResponse.ok(batchRepository.findAll(PageRequest.of(0, 1000, Sort.by(Sort.Direction.DESC, "id"))).getContent()); }

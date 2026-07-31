@@ -103,13 +103,13 @@ namespace AutoPrintAgent
             y += 52;
 
             AddLabel("轮询间隔(秒)", labelX, y + 3);
-            _numInterval = new NumericUpDown { Left = ctrlX, Top = y, Width = 90, Minimum = 1, Maximum = 3600, Value = 3 };
+            _numInterval = new NumericUpDown { Left = ctrlX, Top = y, Width = 70, Minimum = 1, Maximum = 3600, Value = 3 };
             Controls.Add(_numInterval);
-            AddLabel("每次最多领", ctrlX + 110, y + 3);
-            _numBatch = new NumericUpDown { Left = ctrlX + 200, Top = y, Width = 80, Minimum = 1, Maximum = 50, Value = 10 };
+            AddLabelW("每次最多领", ctrlX + 82, y + 3, 78);
+            _numBatch = new NumericUpDown { Left = ctrlX + 164, Top = y, Width = 70, Minimum = 1, Maximum = 50, Value = 10 };
             Controls.Add(_numBatch);
-            AddLabel("失败重试", ctrlX + 300, y + 3);
-            _numRetry = new NumericUpDown { Left = ctrlX + 370, Top = y, Width = 70, Minimum = 0, Maximum = 10, Value = 3 };
+            AddLabelW("失败重试", ctrlX + 246, y + 3, 62);
+            _numRetry = new NumericUpDown { Left = ctrlX + 312, Top = y, Width = 70, Minimum = 0, Maximum = 10, Value = 3 };
             Controls.Add(_numRetry);
             y += 40;
 
@@ -158,6 +158,11 @@ namespace AutoPrintAgent
         private void AddLabel(string text, int x, int yPos)
         {
             Controls.Add(new Label { Left = x, Top = yPos, Width = 130, Text = text });
+        }
+
+        private void AddLabelW(string text, int x, int yPos, int width)
+        {
+            Controls.Add(new Label { Left = x, Top = yPos, Width = width, Text = text, AutoSize = false });
         }
 
         private void AddHint(string text, int x, int yPos)

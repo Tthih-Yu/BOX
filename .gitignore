@@ -10,6 +10,8 @@
 *.apk
 /print-agent/bin/
 /print-agent/obj/
+__pycache__/
+*.pyc
 
 # 临时/无关文件
 1.txt
@@ -25,6 +27,9 @@
 deploy/scripts/material-pull.env
 凭证清单-请勿上传.md
 deploy/certs/
+dbtool/dbtool.env
+dbtool/dbtool.log
+dbtool/dbtool.pid
 
 # ===== 编辑器 / 系统 =====
 .DS_Store
