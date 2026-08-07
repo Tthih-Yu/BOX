@@ -301,7 +301,7 @@ public class PlanningService {
             BigDecimal taskQty = remaining.min(boxQty);
             remaining = remaining.subtract(taskQty);
             ReplenishmentTaskEntity t = new ReplenishmentTaskEntity();
-            t.setTaskNo(IdGenerator.id("RP"));
+            t.setTaskNo(IdGenerator.idMinute("RP"));
             t.setPlanNo(plan.getPlanNo());
             t.setDemandNo(d.getDemandNo());
             t.setLineCode(d.getLineCode());

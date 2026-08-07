@@ -9,7 +9,21 @@
     </div>
     <el-row :gutter="16">
       <el-col :span="12">
-        <div class="card"><h3>任务状态分布</h3><div ref="taskChart" style="height:320px"></div></div>
+        <div class="card">
+          <div class="toolbar">
+            <h3>任务状态分布</h3>
+            <el-select v-model="timeRange" @change="load" style="width:120px" size="small">
+              <el-option label="今天" value="today" />
+              <el-option label="三天" value="3days" />
+              <el-option label="本周" value="week" />
+              <el-option label="本月" value="month" />
+              <el-option label="半年" value="halfyear" />
+              <el-option label="一年" value="year" />
+              <el-option label="至今" value="all" />
+            </el-select>
+          </div>
+          <div ref="taskChart" style="height:320px"></div>
+        </div>
       </el-col>
       <el-col :span="12">
         <div class="card"><h3>盒子状态分布</h3><div ref="boxChart" style="height:320px"></div></div>
@@ -50,8 +64,9 @@ const data = ref<any>({ summary:{}, taskStatus:[], boxStatus:[], latestTasks:[],
 const s = ref<any>({})
 const taskChart = ref()
 const boxChart = ref()
+const timeRange = ref('today')
 async function load(){
-  data.value = await get('/dashboard')
+  data.value = await get('/dashboard', { timeRange: timeRange.value })
   s.value = data.value.summary || {}
   await nextTick()
   render(taskChart.value, data.value.taskStatus || [])

@@ -30,6 +30,11 @@ deploy/certs/
 dbtool/dbtool.env
 dbtool/dbtool.log
 dbtool/dbtool.pid
+token
+/data/
+/apk-updates/
+/新更新/
+/WX_PULL/
 
 # ===== 编辑器 / 系统 =====
 .DS_Store

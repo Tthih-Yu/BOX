@@ -22,7 +22,9 @@ public class DashboardService {
     private final ScanLogRepository scanLogRepository;
     private final InventoryRepository inventoryRepository;
 
-    public DashboardDtos.Dashboard dashboard() {
+    public DashboardDtos.Dashboard dashboard(String timeRange) {
+        LocalDateTime startTime = calculateStartTime(timeRange);
+        
         List<InventoryEntity> inventory = inventoryRepository.findAll();
         DashboardDtos.Summary s = new DashboardDtos.Summary();
         s.materials = materialRepository.count();
@@ -48,7 +50,7 @@ public class DashboardService {
 
         DashboardDtos.Dashboard d = new DashboardDtos.Dashboard();
         d.summary = s;
-        d.taskStatus = Arrays.stream(TaskStatus.values()).map(x -> new DashboardDtos.ChartItem(x.label, taskRepository.countByStatus(x))).toList();
+        d.taskStatus = Arrays.stream(TaskStatus.values()).map(x -> new DashboardDtos.ChartItem(x.label, countTasksByStatusAndTime(x, startTime))).toList();
         d.boxStatus = Arrays.stream(BoxStatus.values()).map(x -> new DashboardDtos.ChartItem(x.label, boxRepository.countByStatus(x))).toList();
         d.latestTasks = taskRepository.findTop20ByOrderByCreatedAtDesc();
         d.latestScans = scanLogRepository.findTop1000ByOrderByScanAtDesc().stream().limit(20).toList();
@@ -58,6 +60,27 @@ public class DashboardService {
         d.urgentTasks = urgent;
         d.shortageItems = shortage;
         return d;
+    }
+
+    private LocalDateTime calculateStartTime(String timeRange) {
+        LocalDateTime now = LocalDateTime.now();
+        return switch (timeRange) {
+            case "today" -> now.toLocalDate().atStartOfDay();
+            case "3days" -> now.minusDays(3);
+            case "week" -> now.minusWeeks(1);
+            case "month" -> now.minusMonths(1);
+            case "halfyear" -> now.minusMonths(6);
+            case "year" -> now.minusYears(1);
+            case "all" -> LocalDateTime.of(2000, 1, 1, 0, 0);
+            default -> now.toLocalDate().atStartOfDay();
+        };
+    }
+
+    private long countTasksByStatusAndTime(TaskStatus status, LocalDateTime startTime) {
+        return taskRepository.findAll().stream()
+            .filter(t -> t.getStatus() == status)
+            .filter(t -> t.getCreatedAt() != null && t.getCreatedAt().isAfter(startTime))
+            .count();
     }
 
     private Comparator<ReplenishmentTaskEntity> taskOrder() {

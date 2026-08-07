@@ -49,6 +49,8 @@ public class ReplenishmentTaskEntity {
     private String warehouseMaterialCode;
     private String materialImageUrl;
     private BigDecimal requestQty = BigDecimal.ZERO;
+    /** 本次任务申请单位；不做单位换算。 */
+    private String requestUnit = "个";
     @Enumerated(EnumType.STRING) private com.example.materialpull.enums.TaskStatus status = com.example.materialpull.enums.TaskStatus.CREATED;
     @Enumerated(EnumType.STRING) private com.example.materialpull.enums.PriorityLevel priority = com.example.materialpull.enums.PriorityLevel.NORMAL;
     private String createdBy;
@@ -115,6 +117,8 @@ public class ReplenishmentTaskEntity {
         if (boxSeq == null) boxSeq = 0;
         if (boxTotal == null) boxTotal = 0;
         if (requestQty == null) requestQty = BigDecimal.ZERO;
+        if (requestUnit == null || requestUnit.isBlank()) requestUnit = "个";
+        else requestUnit = requestUnit.trim();
         if (lockedQty == null) lockedQty = BigDecimal.ZERO;
     }
 }
