@@ -141,7 +141,11 @@
       <el-table-column prop="warehouseAddress" label="仓库地址" width="130" sortable />
       <el-table-column prop="boxSize" label="盒子大小" width="90" />
       <el-table-column prop="materialCode" label="物料号" width="120" />
-      <el-table-column prop="requestQty" label="需求数量" width="100" />
+      <el-table-column label="需求数量" width="120">
+        <template #default="{ row }">
+          {{ row.requestQty }} {{ row.requestUnit || '个' }}
+        </template>
+      </el-table-column>
       <el-table-column label="配送" width="110">
         <template #default="{row}">
           <el-tag v-if="deliveryState(row)==='urgent'" type="danger">紧急</el-tag>

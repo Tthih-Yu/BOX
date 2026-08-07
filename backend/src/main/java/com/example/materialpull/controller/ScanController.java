@@ -16,6 +16,11 @@ import org.springframework.web.bind.annotation.*;
 public class ScanController {
     private final ScanService scanService;
 
+    @PostMapping("/preview")
+    public ApiResponse<ScanDtos.ScanPreviewResult> preview(@RequestBody(required = false) ScanDtos.ScanRequest req) {
+        return ApiResponse.ok(scanService.preview(req));
+    }
+
     @PostMapping("/empty")
     public ApiResponse<ScanDtos.ScanResult> empty(@RequestBody(required = false) ScanDtos.ScanRequest req, @RequestHeader(value = "X-Idempotency-Key", required = false) String idempotencyKey) {
         fillIdempotency(req, idempotencyKey);

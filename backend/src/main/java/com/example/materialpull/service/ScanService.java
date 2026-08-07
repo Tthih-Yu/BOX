@@ -35,6 +35,7 @@ public class ScanService {
     private final MaterialMappingRepository mappingRepository;
     private final StationMaterialRepository stationMaterialRepository;
     private final SystemConfigRepository configRepository;
+    private final MaterialRepository materialRepository;
 
     @Value("${app.task.timeout-minutes:120}")
     private long timeoutMinutes;
@@ -59,7 +60,7 @@ public class ScanService {
         req.operator = OperatorResolver.currentOperator();
         req.deviceNo = (req.deviceNo == null || req.deviceNo.isBlank()) ? "UNKNOWN" : req.deviceNo.trim();
         String requestKey = firstNonBlank(req.idempotencyKey, RequestContext.getTraceId());
-        String requestHash = RequestDigest.sha256(rawScanCode, req.operator, req.deviceNo, req.action, RequestDigest.valueOf(req.allowRepeat));
+        String requestHash = RequestDigest.sha256(rawScanCode, req.operator, req.deviceNo, req.action, RequestDigest.valueOf(req.requestQty), firstNonBlank(req.requestUnit, "个"), RequestDigest.valueOf(req.allowRepeat));
         try {
             idempotencyService.begin(requestKey, "SCAN_EMPTY", rawScanCode, requestHash);
             ScanDtos.ScanRequest finalReq = req;
@@ -326,6 +327,8 @@ public class ScanService {
         r.scannedCode = req.scanCode;
         r.resolvedLabelCode = resolvedLabelCode;
         fillLabelFields(r, label);
+        r.requestQty = task.getRequestQty();
+        r.requestUnit = firstNonBlank(task.getRequestUnit(), "个");
         r.currentBoxCode = current.getBoxCode();
         r.currentBoxStatus = current.getStatus();
         r.standbyBoxCode = standby.getBoxCode();
@@ -389,6 +392,8 @@ public class ScanService {
         r.scannedCode = req.scanCode;
         r.resolvedLabelCode = resolvedLabelCode;
         fillLabelFields(r, label);
+        r.requestQty = task.getRequestQty();
+        r.requestUnit = firstNonBlank(task.getRequestUnit(), "个");
         r.currentBoxCode = otherBox.getBoxCode();
         r.currentBoxStatus = otherBox.getStatus();
         r.standbyBoxCode = scannedStandby.getBoxCode();
@@ -434,6 +439,8 @@ public class ScanService {
         r.message = "扫码成功，已按真实工厂标签生成补货任务；该标签未绑定 A/B 双盒，因此不执行盒子轮换";
         r.scannedCode = req.scanCode;
         r.resolvedLabelCode = resolvedLabelCode;
+        r.requestQty = task.getRequestQty();
+        r.requestUnit = firstNonBlank(task.getRequestUnit(), "个");
         r.taskStatus = task.getStatus();
         r.priority = task.getPriority() == null ? null : task.getPriority().name();
         r.duplicateBlocked = false;
@@ -487,6 +494,7 @@ public class ScanService {
         r.sendStationAddress = task.getSendStationAddress();
         r.boxSize = task.getBoxSize();
         r.requestQty = task.getRequestQty();
+        r.requestUnit = firstNonBlank(task.getRequestUnit(), "个");
         r.materialCode = task.getMaterialCode();
         r.materialName = task.getMaterialName();
         r.deliveryAddress = task.getDeliveryAddress();
@@ -544,7 +552,7 @@ public class ScanService {
 
     private ReplenishmentTaskEntity createTaskFromMapping(ScanDtos.ScanRequest req, MaterialMappingEntity mapping, StationMaterialEntity station, String scannedStationCode, boolean spare) {
         ReplenishmentTaskEntity task = new ReplenishmentTaskEntity();
-        task.setTaskNo(IdGenerator.id("RP"));
+        task.setTaskNo(IdGenerator.idMinute("RP"));
         task.setSourceLabelCode(mapping.getLineMaterialCode());
         task.setBarcodeValue(mapping.getWarehouseCode());
         task.setWarehouseCode(mapping.getWarehouseCode());
@@ -555,7 +563,8 @@ public class ScanService {
         task.setMaterialCode(mapping.getLineMaterialCode());
         task.setMaterialName(mapping.getLineMaterialCode());
         task.setWarehouseMaterialCode(firstNonBlank(mapping.getWarehouseMaterialCode(), mapping.getWarehouseCode()));
-        task.setRequestQty(mapping.getQuantity());
+        task.setRequestQty(resolveRequestQty(req, mapping.getQuantity()));
+        task.setRequestUnit(resolveRequestUnit(req));
         task.setDeliveryArea(firstNonBlank(mapping.getDeliveryArea(), "1"));
         task.setStatus(TaskStatus.CREATED);
         task.setPriority(spare ? PriorityLevel.URGENT : PriorityLevel.NORMAL);
@@ -605,6 +614,7 @@ public class ScanService {
         r.sendStationAddress = task.getSendStationAddress();
         r.boxSize = task.getBoxSize();
         r.requestQty = task.getRequestQty();
+        r.requestUnit = firstNonBlank(task.getRequestUnit(), "个");
         r.materialCode = task.getMaterialCode();
         r.materialName = task.getMaterialName();
         r.deliveryAddress = task.getDeliveryAddress();
@@ -619,7 +629,7 @@ public class ScanService {
 
     private ReplenishmentTaskEntity createTaskFromLabel(ScanDtos.ScanRequest req, LabelEntity label) {
         ReplenishmentTaskEntity task = new ReplenishmentTaskEntity();
-        task.setTaskNo(IdGenerator.id("RP"));
+        task.setTaskNo(IdGenerator.idMinute("RP"));
         task.setSourceLabelCode(label.getLabelCode());
         task.setBarcodeValue(firstNonBlank(label.getBarcodeValue(), label.getPrimaryScanValue()));
         task.setWarehouseCode(label.getWarehouseCode());
@@ -645,7 +655,8 @@ public class ScanService {
         task.setMaterialName(label.getMaterialName());
         task.setWarehouseMaterialCode(label.getWarehouseMaterialCode());
         task.setMaterialImageUrl(label.getMaterialImageUrl());
-        task.setRequestQty(label.getStandardQty());
+        task.setRequestQty(resolveRequestQty(req, label.getStandardQty()));
+        task.setRequestUnit(resolveRequestUnit(req));
         task.setStatus(TaskStatus.CREATED);
         task.setPriority(PriorityLevel.NORMAL);
         task.setCreatedBy(req.operator);
@@ -656,7 +667,7 @@ public class ScanService {
 
     private ReplenishmentTaskEntity createTask(ScanDtos.ScanRequest req, BoxEntity box) {
         ReplenishmentTaskEntity task = new ReplenishmentTaskEntity();
-        task.setTaskNo(IdGenerator.id("RP"));
+        task.setTaskNo(IdGenerator.idMinute("RP"));
         task.setSourceLabelCode(box.getLabelCode());
         task.setBarcodeValue(box.getBarcodeValue());
         task.setWarehouseCode(box.getWarehouseCode());
@@ -681,7 +692,8 @@ public class ScanService {
         task.setMaterialCode(box.getMaterialCode());
         task.setMaterialName(box.getMaterialName());
         task.setWarehouseMaterialCode(box.getWarehouseMaterialCode());
-        task.setRequestQty(box.getStandardQty());
+        task.setRequestQty(resolveRequestQty(req, box.getStandardQty()));
+        task.setRequestUnit(resolveRequestUnit(req));
         task.setStatus(TaskStatus.CREATED);
         task.setPriority(PriorityLevel.NORMAL);
         task.setCreatedBy(req.operator);
@@ -833,5 +845,85 @@ public class ScanService {
         } catch (Exception e) {
             return DEDUP_WINDOW_DEFAULT;
         }
+    }
+
+    private BigDecimal resolveRequestQty(ScanDtos.ScanRequest req, BigDecimal defaultQty) {
+        BigDecimal qty = req.requestQty == null ? defaultQty : req.requestQty;
+        return guard.positive(qty, "本次申请数量");
+    }
+
+    private String resolveRequestUnit(ScanDtos.ScanRequest req) {
+        String unit = firstNonBlank(req.requestUnit, "个");
+        if (unit.length() > 32) {
+            throw new BusinessException(ErrorCode.PARAM_ERROR, "申请单位不能超过32个字符");
+        }
+        return unit;
+    }
+
+    private String findMaterialUnit(String materialCode) {
+        if (materialCode == null || materialCode.isBlank()) return null;
+        return materialRepository.findByMaterialCode(materialCode.trim())
+                .map(MaterialEntity::getUnit)
+                .filter(v -> v != null && !v.isBlank())
+                .map(String::trim)
+                .orElse(null);
+    }
+
+    @Transactional(readOnly = true)
+    public ScanDtos.ScanPreviewResult preview(ScanDtos.ScanRequest req) {
+        if (req == null) req = new ScanDtos.ScanRequest();
+        String raw = firstNonBlank(req.scanCode, req.labelCode);
+        raw = labelResolverService.normalize(raw);
+
+        String[] parsed = splitMaterialAndStation(raw);
+        String scanCode = parsed[0];
+        String stationCode = firstNonBlank(req.stationCode, parsed[1]);
+        String usageType = firstNonBlank(req.usageType, parsed[2]);
+
+        try {
+            LabelEntity label = labelResolverService.resolve(scanCode);
+            validateLabelReadyForPull(label);
+            BoxEntity box = boxRepository.findByLabelCode(label.getLabelCode()).orElse(null);
+
+            BigDecimal defaultQty = box != null
+                    && box.getStandardQty() != null
+                    && box.getStandardQty().compareTo(BigDecimal.ZERO) > 0
+                    ? box.getStandardQty()
+                    : label.getStandardQty();
+
+            ScanDtos.ScanPreviewResult r = new ScanDtos.ScanPreviewResult();
+            r.scannedCode = scanCode;
+            r.materialCode = firstNonBlank(label.getMaterialCode(), box == null ? null : box.getMaterialCode());
+            r.materialName = firstNonBlank(label.getMaterialName(), box == null ? null : box.getMaterialName(), r.materialCode);
+            r.warehouseCode = firstNonBlank(label.getWarehouseCode(), box == null ? null : box.getWarehouseCode());
+            r.warehouseAddress = firstNonBlank(label.getWarehouseAddress(), box == null ? null : box.getWarehouseAddress());
+            r.warehouseLocation = firstNonBlank(label.getWarehouseLocation(), box == null ? null : box.getWarehouseLocation());
+            r.sendStationAddress = firstNonBlank(label.getSendStationAddress(), box == null ? null : box.getSendStationAddress());
+            r.deliveryAddress = firstNonBlank(label.getDeliveryAddress(), box == null ? null : box.getDeliveryAddress());
+            r.stationCode = firstNonBlank(label.getStationCode(), box == null ? null : box.getStationCode(), stationCode);
+            r.defaultQty = guard.positive(defaultQty, "默认申请数量");
+            r.defaultUnit = firstNonBlank(label.getUnit(), findMaterialUnit(r.materialCode), "个");
+            return r;
+        } catch (BusinessException e) {
+            if (e.getErrorCode() != ErrorCode.NOT_FOUND) throw e;
+        }
+
+        boolean spare = "SPARE".equalsIgnoreCase(firstNonBlank(usageType, ""));
+        MaterialMappingEntity mapping = chooseMapping(scanCode, stationCode, spare);
+        Optional<StationMaterialEntity> station = resolveStation(scanCode, stationCode);
+
+        ScanDtos.ScanPreviewResult r = new ScanDtos.ScanPreviewResult();
+        r.scannedCode = scanCode;
+        r.materialCode = scanCode;
+        r.materialName = station.map(StationMaterialEntity::getMaterialName).orElse(scanCode);
+        r.warehouseCode = mapping.getWarehouseCode();
+        r.warehouseAddress = mapping.getWarehouseLocation();
+        r.warehouseLocation = mapping.getWarehouseLocation();
+        r.sendStationAddress = firstNonBlank(mapping.getDeliveryAddress(), stationCode);
+        r.deliveryAddress = r.sendStationAddress;
+        r.stationCode = stationCode;
+        r.defaultQty = guard.positive(mapping.getQuantity(), "默认申请数量");
+        r.defaultUnit = firstNonBlank(findMaterialUnit(scanCode), "个");
+        return r;
     }
 }

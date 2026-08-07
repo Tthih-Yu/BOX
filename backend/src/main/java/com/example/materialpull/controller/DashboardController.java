@@ -14,5 +14,7 @@ import org.springframework.web.bind.annotation.*;
 @RequireRoles({UserRole.PLANNER, UserRole.WAREHOUSE, UserRole.LINE, UserRole.VIEWER})
 public class DashboardController {
     private final DashboardService service;
-    @GetMapping public ApiResponse<DashboardDtos.Dashboard> dashboard() { return ApiResponse.ok(service.dashboard()); }
+    @GetMapping public ApiResponse<DashboardDtos.Dashboard> dashboard(@RequestParam(required = false, defaultValue = "today") String timeRange) { 
+        return ApiResponse.ok(service.dashboard(timeRange)); 
+    }
 }

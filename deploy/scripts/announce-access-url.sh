@@ -10,7 +10,7 @@ RUN_USER="${SUDO_USER:-${USER:-tthih}}"
 HOME_DIR="$(getent passwd "$RUN_USER" | cut -d: -f6)"
 HOME_DIR="${HOME_DIR:-/home/$RUN_USER}"
 
-PROJECT_ROOT="/home/tthih/IE"
+PROJECT_ROOT="/opt/apps/material-pull"
 LOG_DIR="$PROJECT_ROOT/logs"
 mkdir -p "$LOG_DIR" 2>/dev/null || true
 

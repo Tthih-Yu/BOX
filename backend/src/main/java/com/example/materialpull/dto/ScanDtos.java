@@ -2,6 +2,7 @@ package com.example.materialpull.dto;
 
 import com.example.materialpull.enums.BoxStatus;
 import com.example.materialpull.enums.TaskStatus;
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
 
@@ -31,6 +32,10 @@ public class ScanDtos {
         public String emptyContainerNo;
         public String idempotencyKey;
         public Boolean allowRepeat = false;
+        /** 本次任务申请数量；不修改基础数据。 */
+        public BigDecimal requestQty;
+        /** 本次任务申请单位；允许任意文本，空值按“个”。 */
+        public String requestUnit;
     }
     public static class ScanResult {
         public boolean taskCreated;
@@ -47,6 +52,7 @@ public class ScanDtos {
         public String sendStationAddress;
         public String boxSize;
         public java.math.BigDecimal requestQty;
+        public String requestUnit;
         public String delivererEmployeeNo;
         public String kanbanCardNo;
         public String materialCode;
@@ -67,5 +73,18 @@ public class ScanDtos {
         public boolean duplicateBlocked;
         public List<String> warnings;
         public LocalDateTime scanAt;
+    }
+    public static class ScanPreviewResult {
+        public String scannedCode;
+        public String materialCode;
+        public String materialName;
+        public String warehouseCode;
+        public String warehouseAddress;
+        public String warehouseLocation;
+        public String sendStationAddress;
+        public String deliveryAddress;
+        public String stationCode;
+        public BigDecimal defaultQty;
+        public String defaultUnit = "个";
     }
 }

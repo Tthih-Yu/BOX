@@ -91,6 +91,11 @@
           </el-form>
         </div>
 
+        <a class="app-download-entry" href="/app-download.html">
+          <el-icon><Iphone /></el-icon>
+          <span>下载扫码枪 APP</span>
+        </a>
+
         <p class="login-copyright">© {{ year }} {{ APP_CONFIG.title }} · 内部系统</p>
       </main>
     </div>
@@ -99,7 +104,7 @@
 
 <script setup lang="ts">
 import { reactive, ref } from 'vue'
-import { User, Lock } from '@element-plus/icons-vue'
+import { User, Lock, Iphone } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { post } from '../api'
 import { APP_CONFIG } from '../config'
@@ -514,8 +519,36 @@ async function login() {
   transform: translateX(3px);
 }
 
+.app-download-entry {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 20px;
+  padding: 10px 20px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(96, 165, 250, 0.35);
+  color: #bfdbfe;
+  font-size: 14px;
+  font-weight: 600;
+  text-decoration: none;
+  backdrop-filter: blur(12px);
+  transition: background 0.2s ease, border-color 0.2s ease, transform 0.2s ease;
+}
+
+.app-download-entry:hover {
+  background: rgba(37, 99, 235, 0.22);
+  border-color: rgba(96, 165, 250, 0.6);
+  color: #fff;
+  transform: translateY(-1px);
+}
+
+.app-download-entry .el-icon {
+  font-size: 16px;
+}
+
 .login-copyright {
-  margin: 20px 0 0;
+  margin: 14px 0 0;
   font-size: 12px;
   color: #64748b;
 }
