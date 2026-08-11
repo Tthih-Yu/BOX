@@ -6,6 +6,10 @@
         <el-input v-model="searchKeyword" clearable placeholder="搜索：任务号/工位/物料/仓库/数量等全部关键字" style="width:340px" />
         <el-button type="primary" @click="batchPrint" :disabled="!filteredRows.length" :loading="batchPrinting">一键浏览器打印</el-button>
         <el-button type="success" plain @click="batchSubmitPrintJobs" :disabled="!filteredRows.length || !printerName.trim()" :loading="batchSubmitting">一键提交到本地代理队列</el-button>
+        <el-select v-model="groupingMode" style="width:150px">
+          <el-option label="按配送区域" value="area" />
+          <el-option label="按总装地址" value="address" />
+        </el-select>
         <el-select v-model="defaultGroupSort" style="width:170px">
           <el-option label="分类默认：拼音" value="pinyin" />
           <el-option label="分类默认：字母数字" value="alnum" />
@@ -35,15 +39,19 @@
       <div v-else class="station-groups">
         <section v-for="group in groupedRows" :key="group.category" class="station-group">
           <div class="station-title">
-            <div><b>分类：{{ group.category }}</b><span>{{ group.rows.length }} 张标签</span></div>
-            <div class="group-sort">
-              <small>工位前三字段/字符分类</small>
-              <el-select v-model="groupSortMap[group.category]" size="small" style="width:132px">
-                <el-option label="拼音" value="pinyin" />
-                <el-option label="字母数字" value="alnum" />
-                <el-option label="时间早→晚" value="timeAsc" />
-                <el-option label="时间晚→早" value="timeDesc" />
-              </el-select>
+            <div><b>{{ groupingMode === 'area' ? '配送区域' : '总装地址' }}：{{ group.category }}</b><span>{{ group.rows.length }} 张标签</span></div>
+            <div class="group-actions">
+              <el-button size="small" type="primary" plain :loading="group.printing" @click="printGroup(group)">打印本类别</el-button>
+              <el-button size="small" type="success" plain :disabled="!printerName.trim()" :loading="group.submitting" @click="submitGroup(group)">提交本类别</el-button>
+              <div class="group-sort">
+                <small>组内排序</small>
+                <el-select v-model="groupSortMap[group.category]" size="small" style="width:132px">
+                  <el-option label="拼音" value="pinyin" />
+                  <el-option label="字母数字" value="alnum" />
+                  <el-option label="时间早→晚" value="timeAsc" />
+                  <el-option label="时间晚→早" value="timeDesc" />
+                </el-select>
+              </div>
             </div>
           </div>
           <div class="thumb-grid">
@@ -207,6 +215,7 @@ const previewRow = ref<any>(null)
 const previewBarcodeSvg = ref('')
 const searchKeyword = ref('')
 const defaultGroupSort = ref<'pinyin'|'alnum'|'timeAsc'|'timeDesc'>('pinyin')
+const groupingMode = ref<'area'|'address'>('area')
 const groupSortMap = ref<Record<string, 'pinyin'|'alnum'|'timeAsc'|'timeDesc'>>({})
 const batchPrinting = ref(false)
 const batchSubmitting = ref(false)
@@ -284,7 +293,19 @@ async function printPending(row:any){
   load()
 }
 async function batchSubmitPrintJobs(){
-  if (!filteredRows.value.length) return
+  await submitRows(filteredRows.value, '已提交全部筛选结果')
+}
+async function submitGroup(group:any){
+  if (group.submitting) return
+  group.submitting = true
+  try {
+    await submitRows(group.rows, `已提交${group.category}类别`)
+  } finally {
+    group.submitting = false
+  }
+}
+async function submitRows(inputRows:any[], successPrefix:string){
+  if (!inputRows.length) return
   const printer = printerName.value.trim()
   if (!printer) { ElMessage.warning('请先填写打印机名称，用于本地 exe 代理匹配和打印'); return }
   saveRuntimePrinterName(printer)
@@ -292,7 +313,7 @@ async function batchSubmitPrintJobs(){
   let ok = 0
   let fail = 0
   try {
-    for (const row of [...filteredRows.value]) {
+    for (const row of [...inputRows]) {
       try {
         await post('/print-jobs', { taskNo: row.taskNo, printerName: printer, printType: 'WAREHOUSE_BARCODE_LABEL' })
         ok++
@@ -300,18 +321,26 @@ async function batchSubmitPrintJobs(){
         fail++
       }
     }
-    if (ok) ElMessage.success(`已提交 ${ok} 条到本地代理打印队列${fail ? `，失败 ${fail} 条` : ''}`)
+    if (ok) ElMessage.success(`${successPrefix}：${ok} 条${fail ? `，失败 ${fail} 条` : ''}`)
     else if (fail) ElMessage.error(`提交失败 ${fail} 条，请检查后端日志或打印机名称`)
     await load()
   } finally {
     batchSubmitting.value = false
   }
 }
-async function batchPrint(){
-  if (!filteredRows.value.length) return
+async function printGroup(group:any){
+  if (group.printing) return
+  group.printing = true
+  try {
+    await printRows(group.rows, `已调起${group.category}类别打印`)
+  } finally {
+    group.printing = false
+  }
+}
+async function printRows(inputRows:any[], successPrefix:string){
+  if (!inputRows.length) return
   batchPrinting.value = true
-  const rows = [...filteredRows.value]
-  // 必须在用户点击的同步调用里先开窗，否则会被弹窗拦截；条码异步生成后再回填内容。
+  const rows = [...inputRows]
   const w = window.open('', '_blank', 'width=760,height=900')
   if (!w) { ElMessage.warning('浏览器拦截了打印窗口，请允许本站弹出窗口后重试'); batchPrinting.value = false; return }
   try {
@@ -323,7 +352,7 @@ async function batchPrint(){
     w.document.write(batchPrintHtml(rows, svgMap))
     w.document.close()
     triggerChildPrint(w, 300, false)
-    ElMessage.success(`已调起浏览器一键打印：${rows.length} 张，请选择本机斑马打印机`)
+    ElMessage.success(`${successPrefix}：${rows.length} 张，请选择本机斑马打印机`)
     for (const row of rows) {
       try {
         await post('/print-jobs', { taskNo: row.taskNo, printerName: (printerName.value.trim() || '浏览器打印'), printType: 'WAREHOUSE_BARCODE_LABEL', printChannel: 'BROWSER' })
@@ -333,6 +362,9 @@ async function batchPrint(){
   } finally {
     batchPrinting.value = false
   }
+}
+async function batchPrint(){
+  await printRows(filteredRows.value, '已调起筛选结果打印')
 }
 // 批量为每张标签向后端请求真实 CODE_128 条码 SVG（并发），按 taskNo 建映射；失败的留空由假条码兜底。
 async function renderBarcodes(rows:any[]){
@@ -367,16 +399,23 @@ function isUrgentTask(row:any){
   const usage = String(row?.labelUsageType || '').toUpperCase()
   return mode === 'URGENT' || prio === 'URGENT' || usage === 'SPARE'
 }
+function groupCategory(row:any){
+  const value = groupingMode.value === 'area'
+    ? row?.deliveryArea
+    : previewField(row, 'deliveryAddress', 'sendStationAddress', 'stationName', 'stationCode')
+  const text = String(value ?? '').trim()
+  return text || '未分类'
+}
 const groupedRows = computed(() => {
   const map = new Map<string, any[]>()
   for (const row of filteredRows.value) {
-    const key = stationCategory(row)
+    const key = groupCategory(row)
     if (!map.has(key)) map.set(key, [])
     map.get(key)!.push(row)
   }
   return Array.from(map.entries())
     .sort(([a], [b]) => a.localeCompare(b, 'zh-Hans-CN', { numeric:true }))
-    .map(([category, rows]) => ({ category, rows: sortRows(rows, groupSortMap.value[category] || defaultGroupSort.value) }))
+    .map(([category, rows]) => ({ category, rows: sortRows(rows, groupSortMap.value[category] || defaultGroupSort.value), printing:false, submitting:false }))
 })
 function sortRows(list:any[], mode:'pinyin'|'alnum'|'timeAsc'|'timeDesc'){
   return [...list].sort((a,b) => {

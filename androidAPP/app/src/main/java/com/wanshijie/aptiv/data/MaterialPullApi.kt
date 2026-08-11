@@ -3,7 +3,7 @@ package com.wanshijie.aptiv.data
 import org.json.JSONObject
 import java.io.BufferedReader
 import java.io.InputStreamReader
-import java.io.OutputStreamWriter
+import java.math.BigDecimal
 import java.net.HttpURLConnection
 import java.net.URL
 import java.nio.charset.StandardCharsets
@@ -45,6 +45,40 @@ class MaterialPullApi(private val baseUrl: String) {
         path: String,
         scanCode: String,
         format: String,
+        requestQty: BigDecimal,
+        requestUnit: String,
+        deviceNo: String,
+        deviceModel: String,
+        employeeNo: String
+    ): JSONObject {
+        val body = JSONObject()
+            .put("scanCode", scanCode.trim())
+            .put("format", format)
+            .put("deviceNo", deviceNo.trim())
+            .put("source", "android_app")
+            .put("scannedAt", System.currentTimeMillis())
+            .put("employeeNo", employeeNo.trim())
+            .put("requestQty", requestQty)
+            .put("requestUnit", requestUnit.trim().ifBlank { DEFAULT_REQUEST_UNIT })
+        val response = request(
+            path = AppSettings.normalizePath(path),
+            method = "POST",
+            body = body,
+            deviceNo = deviceNo,
+            deviceModel = deviceModel,
+            employeeNo = employeeNo,
+            idempotencyKey = "APP-SCAN-${UUID.randomUUID()}"
+        )
+        return response.optJSONObject("data") ?: response
+    }
+
+    /**
+     * 扫码预览：只解析并返回物料基础数据，不创建补货任务。
+     * 用户确认数量和单位后，再调用 submitBarcodeScan 正式提交。
+     */
+    fun previewBarcodeScan(
+        scanCode: String,
+        format: String,
         deviceNo: String,
         deviceModel: String,
         employeeNo: String
@@ -57,13 +91,12 @@ class MaterialPullApi(private val baseUrl: String) {
             .put("scannedAt", System.currentTimeMillis())
             .put("employeeNo", employeeNo.trim())
         val response = request(
-            path = AppSettings.normalizePath(path),
+            path = PREVIEW_PATH,
             method = "POST",
             body = body,
             deviceNo = deviceNo,
             deviceModel = deviceModel,
-            employeeNo = employeeNo,
-            idempotencyKey = "APP-SCAN-${UUID.randomUUID()}"
+            employeeNo = employeeNo
         )
         return response.optJSONObject("data") ?: response
     }
@@ -77,23 +110,27 @@ class MaterialPullApi(private val baseUrl: String) {
         employeeNo: String = "",
         idempotencyKey: String = ""
     ): JSONObject {
+        val bodyBytes = body?.toString()?.toByteArray(StandardCharsets.UTF_8)
         val connection = (URL(baseUrl.trimEnd('/') + path).openConnection() as HttpURLConnection).apply {
             requestMethod = method
-            connectTimeout = 8000
-            readTimeout = 15000
+            connectTimeout = 4000
+            readTimeout = 8000
+            useCaches = false
             setRequestProperty("Accept", "application/json")
+            setRequestProperty("Connection", "keep-alive")
             setRequestProperty("X-Request-Id", "APP-${UUID.randomUUID()}")
             if (deviceNo.isNotBlank()) setRequestProperty("X-Device-No", deviceNo.trim())
             if (deviceModel.isNotBlank()) setRequestProperty("X-Device-Model", deviceModel.trim())
             if (employeeNo.isNotBlank()) setRequestProperty("X-Employee-No", employeeNo.trim())
             if (idempotencyKey.isNotBlank()) setRequestProperty("X-Idempotency-Key", idempotencyKey)
-            if (body != null) {
+            if (bodyBytes != null) {
                 doOutput = true
                 setRequestProperty("Content-Type", "application/json; charset=utf-8")
+                setFixedLengthStreamingMode(bodyBytes.size)
             }
         }
-        if (body != null) {
-            OutputStreamWriter(connection.outputStream, StandardCharsets.UTF_8).use { it.write(body.toString()) }
+        if (bodyBytes != null) {
+            connection.outputStream.use { it.write(bodyBytes) }
         }
 
         val status = connection.responseCode
@@ -108,6 +145,11 @@ class MaterialPullApi(private val baseUrl: String) {
             throw ApiException(if (requestId.isBlank()) message else "$message\n追踪号：$requestId")
         }
         return json
+    }
+
+    private companion object {
+        const val PREVIEW_PATH = "/scan/preview"
+        const val DEFAULT_REQUEST_UNIT = "个"
     }
 }
 

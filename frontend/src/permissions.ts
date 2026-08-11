@@ -5,10 +5,12 @@ export const ROLE_SETS:Record<string, UserRole[]> = {
   all: ['ADMIN','PLANNER','WAREHOUSE','LINE','VIEWER'],
   masterRead: ['ADMIN','PLANNER','WAREHOUSE','LINE','VIEWER'],
   admin: ['ADMIN'],
-  planner: ['ADMIN','PLANNER'],
+  planner: ['ADMIN','SUB_ADMIN','PLANNER'],
   warehouse: ['ADMIN','WAREHOUSE'],
   warehousePlanner: ['ADMIN','PLANNER','WAREHOUSE'],
   lineOps: ['ADMIN','WAREHOUSE','LINE'],
+  // 料号映射“追加式导入”的可用角色。普通管理员(SUB_ADMIN)仅有此项，不含单条增删改/覆盖/清空。
+  mappingImport: ['ADMIN','PLANNER','WAREHOUSE','SUB_ADMIN'],
 }
 
 export interface RouteMetaItem { path:string; title:string; roles:UserRole[]; menu?:boolean; group?:string; icon?:string }
@@ -25,7 +27,10 @@ export const ROUTE_META:RouteMetaItem[] = [
   { path:'/integrations', title:'SAP/IMS接口', roles:ROLE_SETS.warehousePlanner, icon:'Grid' },
   { path:'/boxes', title:'A/B双盒状态', roles:ROLE_SETS.all, icon:'Box' },
   { path:'/materials', title:'物料主数据', roles:ROLE_SETS.masterRead, group:'master' },
-  { path:'/mappings', title:'料号映射', roles:['ADMIN','PLANNER','WAREHOUSE','VIEWER'], group:'master' },
+  { path:'/mappings', title:'料号映射', roles:['ADMIN','SUB_ADMIN','PLANNER','WAREHOUSE','VIEWER'], group:'master' },
+  { path:'/simple-bom', title:'简单BOM', roles:['ADMIN','PLANNER','WAREHOUSE','VIEWER'], group:'master' },
+  { path:'/weekly-plan', title:'周计划', roles:['ADMIN','PLANNER','WAREHOUSE','VIEWER'], group:'master' },
+  { path:'/weekly-plan-template', title:'周计划模板', roles:['ADMIN','PLANNER','WAREHOUSE','VIEWER'], group:'master' },
   { path:'/station-materials', title:'工位用料', roles:ROLE_SETS.masterRead, group:'master' },
   { path:'/inventory', title:'仓库库存', roles:ROLE_SETS.warehousePlanner, group:'master' },
   { path:'/labels', title:'标签管理', roles:ROLE_SETS.all, group:'label' },

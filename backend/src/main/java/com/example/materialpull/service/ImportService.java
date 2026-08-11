@@ -61,7 +61,7 @@ public class ImportService {
      */
     private static final Map<String, String[]> SCHEMAS = Map.of(
             "materials", new String[]{"materialCode", "warehouseMaterialCode", "materialName", "spec", "unit", "category"},
-            "mappings", new String[]{"mappingOrder", "lineMaterialCode", "warehouseCode", "boxSize", "quantity", "deliveryType", "warehouseLocation", "deliveryAddress", "remark", "deliveryArea", "warehouseMaterialCode"},
+            "mappings", new String[]{"mappingOrder", "lineMaterialCode", "warehouseCode", "boxSize", "quantity", "deliveryType", "warehouseLocation", "deliveryAddress", "remark", "deliveryArea", "warehouseMaterialCode", "singleUnitUsage"},
             "stationMaterials", new String[]{"lineCode", "stationCode", "stationName", "materialCode", "materialName", "warehouseMaterialCode", "standardBoxQty", "dailyUsage", "triggerQty"},
             "factoryLabels", new String[]{"warehouseCode", "barcodeValue", "primaryScanValue", "materialCode", "materialName", "warehouseMaterialCode", "warehouseAddress", "sendStationAddress", "boxSize", "standardQty", "unit", "delivererEmployeeNo", "lineCode", "stationCode", "stationName", "printDate", "bindBox", "boxSide", "containerType", "remark"},
             "siteLabels", new String[]{"areaCode", "kanbanCardNo", "barcodeValue", "projectCode", "routeName", "deliveryAddress", "materialCode", "materialName", "warehouseMaterialCode", "standardQty", "boxSide", "warehouseLocation", "specText", "unit", "printDate", "lineCode", "stationCode", "stationName", "bindBox"},
@@ -89,6 +89,7 @@ public class ImportService {
         m.put("deliveryAddress", new String[]{"总装地址", "配送地址", "送货地址", "地址"});
         m.put("remark", new String[]{"备注", "说明"});
         m.put("deliveryArea", new String[]{"配送区域", "区域", "分区"});
+        m.put("singleUnitUsage", new String[]{"单根用量", "单件用量", "单台用量", "单根用量数"});
         m.put("lineCode", new String[]{"产线", "产线代号", "线体", "线别"});
         m.put("stationCode", new String[]{"工位代号", "工位号", "工位编码"});
         m.put("stationName", new String[]{"工位名称", "工位"});
@@ -449,6 +450,7 @@ public class ImportService {
         m.setDeliveryAddress(r.str("deliveryAddress"));
         m.setRemark(r.str("remark"));
         m.setDeliveryArea(r.str("deliveryArea").isBlank() ? "1" : r.str("deliveryArea"));
+        m.setSingleUnitUsage(r.numOrNull("singleUnitUsage", "单根用量"));
         basicDataService.normalizeMapping(m);
         return m;
     }
@@ -587,6 +589,13 @@ public class ImportService {
         catch (Exception e) { throw new IllegalArgumentException(name + "必须是数字，当前值=" + s); }
     }
 
+    /** 与 parseNum 相同，但空值返回 null（保留“未维护”语义，不落成 0）。 */
+    private BigDecimal parseNumOrNull(String s, String name) {
+        if (s == null || s.isBlank()) return null;
+        try { return new BigDecimal(s.trim().replace(",", "")); }
+        catch (Exception e) { throw new IllegalArgumentException(name + "必须是数字，当前值=" + s); }
+    }
+
     private Integer parseInt(String s, String name) {
         if (s == null || s.isBlank()) return null;
         try { return Integer.parseInt(s.trim().replace(",", "")); }
@@ -638,6 +647,10 @@ public class ImportService {
 
         BigDecimal num(String field, String name) {
             return parseNum(str(field), name);
+        }
+
+        BigDecimal numOrNull(String field, String name) {
+            return parseNumOrNull(str(field), name);
         }
 
         Integer intVal(String field, String name) {

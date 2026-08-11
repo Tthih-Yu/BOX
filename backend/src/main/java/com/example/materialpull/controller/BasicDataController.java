@@ -36,7 +36,7 @@ public class BasicDataController {
 
     private static final List<String> MAPPING_EXPORT_COLUMNS = List.of(
             "mappingOrder", "lineMaterialCode", "warehouseCode", "boxSize", "quantity",
-            "deliveryType", "warehouseLocation", "deliveryAddress", "remark", "deliveryArea", "warehouseMaterialCode");
+            "deliveryType", "warehouseLocation", "deliveryAddress", "remark", "deliveryArea", "warehouseMaterialCode", "singleUnitUsage");
 
     @GetMapping("/materials")
     @RequireRoles({UserRole.PLANNER, UserRole.WAREHOUSE, UserRole.LINE, UserRole.VIEWER})
@@ -51,19 +51,19 @@ public class BasicDataController {
     public ApiResponse<Void> delMaterial(@PathVariable Long id) { service.disableMaterial(id); return ApiResponse.ok(null); }
 
     @GetMapping("/mappings")
-    @RequireRoles({UserRole.PLANNER, UserRole.WAREHOUSE, UserRole.VIEWER})
+    @RequireRoles({UserRole.SUB_ADMIN, UserRole.PLANNER, UserRole.WAREHOUSE, UserRole.VIEWER})
     public ApiResponse<List<MaterialMappingEntity>> mappings() { return ApiResponse.ok(mappingRepository.findTop1000ByOrderByLineMaterialCodeAscMappingOrderAscIdAsc()); }
 
     @PostMapping("/mappings")
-    @RequireRoles({UserRole.PLANNER})
+    @RequireRoles({UserRole.SUB_ADMIN, UserRole.PLANNER})
     public ApiResponse<MaterialMappingEntity> saveMapping(@RequestBody MaterialMappingEntity e) { return ApiResponse.ok(service.saveMapping(e)); }
 
     @DeleteMapping("/mappings/{id}")
-    @RequireRoles({UserRole.PLANNER})
+    @RequireRoles({UserRole.SUB_ADMIN, UserRole.PLANNER})
     public ApiResponse<Void> delMapping(@PathVariable Long id) { service.disableMapping(id); return ApiResponse.ok(null); }
 
     @GetMapping("/mappings/export")
-    @RequireRoles({UserRole.PLANNER, UserRole.WAREHOUSE, UserRole.VIEWER})
+    @RequireRoles({UserRole.SUB_ADMIN, UserRole.PLANNER, UserRole.WAREHOUSE, UserRole.VIEWER})
     public ResponseEntity<byte[]> exportMappings() {
         byte[] body = logExportService.exportToXlsx("料号映射", service.exportMappings(), MAPPING_EXPORT_COLUMNS);
         String filename = logExportService.buildFileName("mappings");
@@ -76,7 +76,7 @@ public class BasicDataController {
     }
 
     @DeleteMapping("/mappings")
-    @RequireRoles({UserRole.PLANNER})
+    @RequireRoles({UserRole.SUB_ADMIN, UserRole.PLANNER})
     public ApiResponse<Map<String, Object>> deleteMappings(@RequestBody(required = false) MappingDeleteRequest req) {
         if (req == null) req = new MappingDeleteRequest();
         return ApiResponse.ok(service.deleteMappings(req.scope, req.deliveryArea, req.ids));

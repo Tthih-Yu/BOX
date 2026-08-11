@@ -20,10 +20,13 @@
         <el-menu-item v-if="can('/planning')" index="/planning"><el-icon><DataBoard /></el-icon>PPC/MRP/MPC</el-menu-item>
         <el-menu-item v-if="can('/integrations')" index="/integrations"><el-icon><Grid /></el-icon>SAP/IMS接口</el-menu-item>
         <el-menu-item v-if="can('/boxes')" index="/boxes"><el-icon><Box /></el-icon>A/B双盒状态</el-menu-item>
-        <el-sub-menu index="master" v-if="canAny(['/materials','/mappings','/station-materials','/inventory'])">
+        <el-sub-menu index="master" v-if="canAny(['/materials','/mappings','/simple-bom','/weekly-plan','/weekly-plan-template','/station-materials','/inventory'])">
           <template #title><el-icon><Grid /></el-icon>基础数据</template>
           <el-menu-item v-if="can('/materials')" index="/materials">物料主数据</el-menu-item>
           <el-menu-item v-if="can('/mappings')" index="/mappings">料号映射</el-menu-item>
+          <el-menu-item v-if="can('/simple-bom')" index="/simple-bom">简单BOM</el-menu-item>
+          <el-menu-item v-if="can('/weekly-plan')" index="/weekly-plan">周计划</el-menu-item>
+          <el-menu-item v-if="can('/weekly-plan-template')" index="/weekly-plan-template">周计划模板</el-menu-item>
           <el-menu-item v-if="can('/station-materials')" index="/station-materials">工位用料</el-menu-item>
           <el-menu-item v-if="can('/inventory')" index="/inventory">仓库库存</el-menu-item>
         </el-sub-menu>

@@ -44,10 +44,16 @@ mkdir -p "$UPDATES_DIR"
 APK_NAME="aptiv-${VERSION_NAME}.apk"
 APK_DEST="$UPDATES_DIR/$APK_NAME"
 
-echo "== 复制 APK =="
+echo "== 准备 APK =="
 echo "  源:   $APK_SRC"
 echo "  目标: $APK_DEST"
-cp -f "$APK_SRC" "$APK_DEST"
+# 允许构建好的 APK 直接以 aptiv-<versionName>.apk 放入更新目录。
+# 源和目标是同一文件时无需复制，否则 cp 会报“是同一个文件”。
+if [[ "$(realpath "$APK_SRC")" == "$(realpath -m "$APK_DEST")" ]]; then
+  echo "  源文件已位于发布目标，无需复制"
+else
+  cp -f "$APK_SRC" "$APK_DEST"
+fi
 
 # ---- 计算校验信息 ----
 SHA256="$(sha256sum "$APK_DEST" | awk '{print $1}')"

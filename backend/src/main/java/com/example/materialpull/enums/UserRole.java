@@ -2,6 +2,7 @@ package com.example.materialpull.enums;
 
 public enum UserRole {
     ADMIN("管理员"),
+    SUB_ADMIN("普通管理员"),
     PLANNER("计划员"),
     WAREHOUSE("仓库员"),
     LINE("产线员工"),
