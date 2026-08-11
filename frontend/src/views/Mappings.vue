@@ -11,7 +11,7 @@
       <ImportButton
         type="mappings"
         template-url="/import_templates/mappings.csv"
-        :write-roles="ROLE_SETS.planner"
+        :write-roles="ROLE_SETS.mappingImport"
         @imported="reload"
       />
       <ImportButton
@@ -150,6 +150,7 @@ const columns = [
   { prop:'warehouseCode', label:'仓库代号', width:160 },
   { prop:'boxSize', label:'盒子大小', width:120 },
   { prop:'quantity', label:'数量', type:'number', width:110 },
+  { prop:'singleUnitUsage', label:'单根用量', type:'number', width:110 },
   { prop:'deliveryType', label:'用途', options:[{label:'使用（正常）',value:'NORMAL'},{label:'备用（紧急）',value:'URGENT'}], width:120 },
   { prop:'warehouseLocation', label:'仓库位置', width:160 },
   { prop:'deliveryAddress', label:'总装地址', width:200 },

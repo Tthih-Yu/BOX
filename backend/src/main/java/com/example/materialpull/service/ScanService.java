@@ -520,16 +520,44 @@ public class ScanService {
         List<MaterialMappingEntity> candidates = mappingRepository.findByLineMaterialCodeAndEnabledTrueOrderByMappingOrderAscIdAsc(materialCode);
         if (candidates.isEmpty()) throw new BusinessException(ErrorCode.NOT_FOUND, "未找到物料号对应的料号映射：" + materialCode + "，请在基础数据→料号映射维护该物料的仓库代号");
 
-        // 条件2：发送工位地址 = Excel 总装地址(deliveryAddress)。仅在二维码扫出工位地址时校验。
+        // 条件2：发送工位地址 = Excel 总装地址(deliveryAddress)。
         String target = firstNonBlank(stationAddress);
         if (target != null) {
             List<MaterialMappingEntity> matched = candidates.stream()
                     .filter(m -> normalizedEquals(m.getDeliveryAddress(), target))
                     .toList();
             if (matched.isEmpty()) {
-                throw new BusinessException(ErrorCode.NOT_FOUND, "条件2未满足：物料号 " + materialCode + " 在料号映射中没有总装地址等于发送工位地址 " + target + " 的记录，请核对料号映射的总装地址配置");
+                // 带上该物料已维护的地址清单，便于现场直接对照是二维码印错还是映射缺记录。
+                String known = candidates.stream()
+                        .map(MaterialMappingEntity::getDeliveryAddress)
+                        .filter(a -> a != null && !a.isBlank())
+                        .distinct()
+                        .collect(java.util.stream.Collectors.joining("、"));
+                throw new BusinessException(ErrorCode.NOT_FOUND,
+                        "物料号 " + materialCode + " 没有总装地址为 " + target + " 的料号映射。"
+                        + "该物料已维护的总装地址：" + (known.isEmpty() ? "无" : known)
+                        + "。请核对工位二维码，或在基础数据→料号映射补充该工位的记录。");
             }
             candidates = matched;
+        } else {
+            // 没扫出工位地址时不许猜：同一物料常被多个工位共用（现场有物料对应 6 个总装地址），
+            // 任取第一条会生成别的工位的仓库代号，标签直接印错、料也拉错。
+            // 只有该物料全部映射同属一个总装地址时，缺工位才是安全的。
+            long distinctAddresses = candidates.stream()
+                    .map(m -> normalizeAddress(m.getDeliveryAddress()))
+                    .filter(Objects::nonNull)
+                    .distinct()
+                    .count();
+            if (distinctAddresses > 1) {
+                String addresses = candidates.stream()
+                        .map(MaterialMappingEntity::getDeliveryAddress)
+                        .filter(a -> a != null && !a.isBlank())
+                        .distinct()
+                        .collect(java.util.stream.Collectors.joining("、"));
+                throw new BusinessException(ErrorCode.DATA_DIRTY,
+                        "物料号 " + materialCode + " 对应多个总装地址（" + addresses + "），本次扫码未识别出工位地址，"
+                        + "无法确定该送哪个工位，已拒绝建单。请使用带工位信息的工位二维码（物料号,工位,使用/备用），或在 APP 中选择工位后重试。");
+            }
         }
 
         // 两个条件已满足，再按用途择一：优先取用途匹配的记录。
@@ -770,9 +798,26 @@ public class ScanService {
     }
 
     private boolean normalizedEquals(String left, String right) {
-        String l = firstNonBlank(left);
-        String r = firstNonBlank(right);
-        return l != null && r != null && l.equalsIgnoreCase(r);
+        String l = normalizeAddress(left);
+        String r = normalizeAddress(right);
+        return l != null && r != null && l.equals(r);
+    }
+
+    /**
+     * 工位/总装地址归一化后再比较，避免"看起来一样却匹配不上"导致误报条件2失败。
+     * 现场地址里有 76 条含波浪号，全角 ～ 与半角 ~ 混用；另兼容全角连字符、空格与大小写差异。
+     * 只做字符形态归一，不改变地址语义（不删分隔符，避免 A-01 与 A0-1 被判为同一个）。
+     */
+    private String normalizeAddress(String value) {
+        String v = firstNonBlank(value);
+        if (v == null) return null;
+        String s = v.replace('～', '~')
+                    .replace('－', '-')
+                    .replace('　', ' ')
+                    .replace('（', '(')
+                    .replace('）', ')');
+        s = s.replaceAll("\\s+", "");
+        return s.toUpperCase();
     }
 
     /**
@@ -784,11 +829,23 @@ public class ScanService {
         if (code == null) return new String[]{null, null, null};
         String s = code.trim();
         if (s.startsWith("{") || s.contains("=")) return new String[]{s, null, null};
-        // 工位地址本身带 '-'，故不能用 '-' 分隔；按常见分隔符切分。
-        String[] parts = s.split("[,，|;]");
-        String material = parts.length > 0 ? parts[0].trim() : s;
+        // 工位地址本身带 '-'，故不能用 '-' 分隔；兼容逗号/竖线/分号以及二维码常见的多行版式：
+        //   13609637(备用)\n物料架-11-E06
+        String[] parts = s.split("[,，|;\\r\\n]+", -1);
+        String first = parts.length > 0 ? parts[0].trim() : s;
+        String usage = null;
+        java.util.regex.Matcher usageSuffix = java.util.regex.Pattern
+                .compile("^(.+?)[（(]\\s*(使用|备用|正常|紧急|USE|SPARE|NORMAL|URGENT)\\s*[）)]$", java.util.regex.Pattern.CASE_INSENSITIVE)
+                .matcher(first);
+        String material;
+        if (usageSuffix.matches()) {
+            material = usageSuffix.group(1).trim();
+            usage = normalizeUsage(usageSuffix.group(2));
+        } else {
+            material = first;
+        }
         String station = parts.length > 1 && !parts[1].isBlank() ? parts[1].trim() : null;
-        String usage = parts.length > 2 && !parts[2].isBlank() ? normalizeUsage(parts[2].trim()) : null;
+        if (parts.length > 2 && !parts[2].isBlank()) usage = normalizeUsage(parts[2].trim());
         return new String[]{material, station, usage};
     }
 

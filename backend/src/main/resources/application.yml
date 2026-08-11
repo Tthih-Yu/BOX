@@ -130,6 +130,10 @@ app:
   scheduler:
     timeout-check-ms: 60000
     auto-print-check-ms: 60000
+    # 每天 00:00（上海时区）按当天周计划自动刷新料号映射.quantity。
+    # cron 可通过 MATERIAL_PULL_WEEKLY_PLAN_REFRESH_CRON 覆盖；六段格式：秒 分 时 日 月 周。
+    weekly-plan-refresh-cron: ${MATERIAL_PULL_WEEKLY_PLAN_REFRESH_CRON:0 0 0 * * *}
+    weekly-plan-zone: ${MATERIAL_PULL_WEEKLY_PLAN_ZONE:Asia/Shanghai}
 
 logging:
   level:

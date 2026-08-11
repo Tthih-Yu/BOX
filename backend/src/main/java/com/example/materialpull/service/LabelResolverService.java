@@ -25,8 +25,13 @@ public class LabelResolverService {
         if (scanCode == null) throw new BusinessException(ErrorCode.PARAM_ERROR, "扫码内容不能为空");
         String s = scanCode.trim();
         if (s.isBlank()) throw new BusinessException(ErrorCode.PARAM_ERROR, "扫码内容不能为空");
-        // 扫码枪常见尾缀：回车、Tab、不可见BOM。二维码可能是JSON/键值对，所以只清理边界和控制符，不误删有效分隔符。
-        s = s.replace("\uFEFF", "").replace("\r", "").replace("\n", "").replace("\t", "").trim();
+        // 扫码枪常见尾缀要清理，但二维码内部换行承载字段分隔时不能直接删除，否则
+        // "13609637(备用)\n物料架-11-E06" 会粘成无法解析的一段。内部换行统一转逗号，再去 Tab/BOM。
+        s = s.replace("\uFEFF", "")
+             .replaceAll("[\\r\\n]+", ",")
+             .replace("\t", "")
+             .replaceAll("^,+|,+$", "")
+             .trim();
         if (s.length() > 2048) throw new BusinessException(ErrorCode.PARAM_ERROR, "扫码内容过长，疑似二维码内容或扫码枪配置异常，请检查码制规则");
         return s;
     }

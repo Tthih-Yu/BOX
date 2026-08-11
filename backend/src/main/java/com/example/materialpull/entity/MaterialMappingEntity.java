@@ -30,6 +30,11 @@ public class MaterialMappingEntity {
     private String warehouseCode;
     private String boxSize;
     private BigDecimal quantity = BigDecimal.ZERO;
+    /**
+     * 单根用量：一件产品消耗该组件的数量。由周计划自动计算引擎读取，
+     * 组件需求量 = 计划数量 × 单根用量。允许为空，空表示尚未维护。
+     */
+    private BigDecimal singleUnitUsage;
     private Integer mappingOrder = 1;
     private String deliveryType = "NORMAL";
     /** 仓库货架位置，例如 C-26-D-5。直接透传到仓库标签和任务的 warehouseLocation 字段。 */

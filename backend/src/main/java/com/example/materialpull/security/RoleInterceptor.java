@@ -25,6 +25,15 @@ public class RoleInterceptor implements HandlerInterceptor {
         if (current == null) throw new BusinessException(ErrorCode.UNAUTHORIZED, "未登录或登录已失效");
         if (current == UserRole.ADMIN || current == UserRole.SYSTEM) return true;
         if (Arrays.stream(required.value()).anyMatch(role -> role == current)) return true;
+        // 普通管理员(SUB_ADMIN)是“准管理员”：除管理员专属接口(仅标注 ADMIN)外全部放行。
+        // 用户管理、系统参数、菜单权限配置等敏感接口都是 ADMIN-only，因此 SUB_ADMIN 无法借此提权。
+        if (current == UserRole.SUB_ADMIN && !isAdminOnly(required)) return true;
         throw new BusinessException(ErrorCode.FORBIDDEN, "当前角色无权访问该功能");
+    }
+
+    /** 判断该接口是否为管理员专属（@RequireRoles 只包含 ADMIN）。 */
+    private boolean isAdminOnly(RequireRoles required) {
+        UserRole[] roles = required.value();
+        return roles.length == 1 && roles[0] == UserRole.ADMIN;
     }
 }

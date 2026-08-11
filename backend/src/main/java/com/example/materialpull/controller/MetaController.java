@@ -12,7 +12,7 @@ import java.util.Arrays;
 
 @RestController
 @RequestMapping("/meta")
-@RequireRoles({UserRole.ADMIN, UserRole.PLANNER, UserRole.WAREHOUSE, UserRole.LINE, UserRole.VIEWER})
+@RequireRoles({UserRole.ADMIN, UserRole.SUB_ADMIN, UserRole.PLANNER, UserRole.WAREHOUSE, UserRole.LINE, UserRole.VIEWER})
 public class MetaController {
     @GetMapping("/business")
     public ApiResponse<FactoryDtos.BusinessMeta> business() {

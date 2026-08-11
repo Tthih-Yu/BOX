@@ -1,7 +1,10 @@
 package com.example.materialpull.controller;
 
 import com.example.materialpull.common.ApiResponse;
+import com.example.materialpull.common.BusinessException;
+import com.example.materialpull.common.ErrorCode;
 import com.example.materialpull.common.OperatorResolver;
+import com.example.materialpull.common.RequestContext;
 import com.example.materialpull.entity.ImportBatchEntity;
 import com.example.materialpull.entity.ImportErrorEntity;
 import com.example.materialpull.enums.UserRole;
@@ -20,7 +23,7 @@ import java.util.List;
 @RestController
 @RequestMapping("/imports")
 @RequiredArgsConstructor
-@RequireRoles({UserRole.ADMIN, UserRole.PLANNER, UserRole.WAREHOUSE})
+@RequireRoles({UserRole.ADMIN, UserRole.SUB_ADMIN, UserRole.PLANNER, UserRole.WAREHOUSE})
 public class ImportController {
     private final ImportService importService;
     private final ImportBatchRepository batchRepository;
@@ -30,6 +33,10 @@ public class ImportController {
     public ApiResponse<ImportBatchEntity> upload(@PathVariable String type,
                                                  @RequestParam MultipartFile file,
                                                  @RequestParam(value = "overwrite", required = false, defaultValue = "false") boolean overwrite) throws Exception {
+        // 普通管理员（SUB_ADMIN）只在料号映射范围内操作，可覆盖上传，但不能导入其它数据类型。
+        if (RequestContext.getRole() == UserRole.SUB_ADMIN && !"mappings".equals(type)) {
+            throw new BusinessException(ErrorCode.FORBIDDEN, "普通管理员只能导入料号映射");
+        }
         return ApiResponse.ok(importService.importExcel(type, file, OperatorResolver.currentOperator(), overwrite));
     }
 

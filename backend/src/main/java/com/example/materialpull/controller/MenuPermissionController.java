@@ -19,7 +19,7 @@ public class MenuPermissionController {
 
     /** 当前登录用户可见菜单白名单；null 表示走前端默认角色映射(不做后台限制)。 */
     @GetMapping("/mine")
-    @RequireRoles({UserRole.ADMIN, UserRole.PLANNER, UserRole.WAREHOUSE, UserRole.LINE, UserRole.VIEWER})
+    @RequireRoles({UserRole.ADMIN, UserRole.SUB_ADMIN, UserRole.PLANNER, UserRole.WAREHOUSE, UserRole.LINE, UserRole.VIEWER})
     public ApiResponse<List<String>> mine() {
         return ApiResponse.ok(service.menusForRole(RequestContext.getRole()));
     }

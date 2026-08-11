@@ -39,7 +39,7 @@ class AppSettings(context: Context) {
             .ifBlank { "UNKNOWN" }
 
     companion object {
-        const val DEFAULT_SERVER_BASE_URL = "http://10.0.2.2:8080/api"
+        const val DEFAULT_SERVER_BASE_URL = "http://10.243.129.131/api"
         const val DEFAULT_SCAN_SUBMIT_PATH = "/scan/empty"
 
         private const val KEY_SERVER_BASE_URL = "server_base_url"
