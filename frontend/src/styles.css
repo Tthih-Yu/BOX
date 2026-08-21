@@ -209,6 +209,12 @@ select,
   padding: 0 24px;
 }
 
+.page-heading { min-width: 0; }
+.page-subtitle { margin-top: 4px; color: #64748b; font-size: 13px; font-weight: 400; }
+.topbar--print { background: #fff; backdrop-filter: none; border-bottom-color: #e2e8f0; box-shadow: none; }
+.topbar--print .top-actions .el-tag { border-radius: 6px; background: #f8fafc; border-color: #e2e8f0; color: #475569; }
+.topbar--print .top-actions .el-button { color: #64748b; }
+.topbar--print .top-actions .el-button:hover { color: #2563eb; }
 .page-title {
   font-size: 22px;
   font-weight: 800;

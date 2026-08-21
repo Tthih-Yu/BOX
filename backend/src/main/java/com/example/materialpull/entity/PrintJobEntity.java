@@ -17,6 +17,8 @@ public class PrintJobEntity {
     private Long id;
     @Version private Long version;
     private String printJobNo;
+    /** 从任务继承的工厂快照；空值表示历史或未维护工厂。 */
+    private String factory;
     private String taskNo;
     private String labelCode;
     private String printType;

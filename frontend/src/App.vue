@@ -12,7 +12,6 @@
       <el-menu router :default-active="$route.path" class="menu">
         <el-menu-item v-if="can('/dashboard')" index="/dashboard"><el-icon><DataBoard /></el-icon>首页看板</el-menu-item>
         <el-menu-item v-if="can('/big-screen')" index="/big-screen"><el-icon><Monitor /></el-icon>现场大屏</el-menu-item>
-        <el-menu-item v-if="can('/scan')" index="/scan"><el-icon><FullScreen /></el-icon>现场扫码</el-menu-item>
         <el-menu-item v-if="can('/tasks')" index="/tasks"><el-icon><List /></el-icon>仓库补货任务</el-menu-item>
         <el-menu-item v-if="can('/box-pool')" index="/box-pool"><el-icon><Box /></el-icon>周转盒池/空盒回收</el-menu-item>
         <el-menu-item v-if="can('/print-jobs')" index="/print-jobs"><el-icon><Tickets /></el-icon>出货标签打印</el-menu-item>
@@ -27,7 +26,7 @@
           <el-menu-item v-if="can('/simple-bom')" index="/simple-bom">简单BOM</el-menu-item>
           <el-menu-item v-if="can('/weekly-plan')" index="/weekly-plan">周计划</el-menu-item>
           <el-menu-item v-if="can('/weekly-plan-template')" index="/weekly-plan-template">周计划模板</el-menu-item>
-          <el-menu-item v-if="can('/station-materials')" index="/station-materials">工位用料</el-menu-item>
+          <el-menu-item v-if="can('/station-materials')" index="/station-materials">物料用量看板</el-menu-item>
           <el-menu-item v-if="can('/inventory')" index="/inventory">仓库库存</el-menu-item>
         </el-sub-menu>
         <el-sub-menu index="label" v-if="canAny(['/labels','/label-templates','/label-scan-rules'])">
@@ -48,8 +47,8 @@
       </el-menu>
     </el-aside>
     <el-container class="content-shell">
-      <el-header class="topbar">
-        <div class="page-title">{{ routeTitle }}</div>
+      <el-header class="topbar" :class="{ 'topbar--print': route.path === '/print-jobs' }">
+        <div class="page-heading"><div class="page-title">{{ routeTitle }}</div><div v-if="route.path === '/print-jobs'" class="page-subtitle">集中查看、筛选并打印各工厂待处理标签</div></div>
         <div class="top-actions">
           <el-tag type="success">加固版 {{ APP_CONFIG.version }}</el-tag>
           <el-tag>{{ loginUser }}</el-tag>

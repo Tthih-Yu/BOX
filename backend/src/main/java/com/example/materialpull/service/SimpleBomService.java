@@ -237,6 +237,131 @@ public class SimpleBomService {
         batchRepository.save(batch);
     }
 
+    /**
+     * 清空当前有效批次的全部 BOM 行（不删批次本身）。
+     * 要求当前必须有 ACTIVE 批次，否则报错。
+     */
+    @Transactional
+    public int deleteAllRows() {
+        SimpleBomBatchEntity active = activeBatch();
+        if (active == null) throw new BusinessException(ErrorCode.PARAM_ERROR, "当前没有有效的 BOM 批次，无数据可删除");
+        int deleted = bomRepository.deleteByBatchNo(active.getBatchNo());
+        syncBatchCount(active);
+        return deleted;
+    }
+
+    /**
+     * 批量删除：上传 CSV/Excel，解析后精确匹配 物料8D号+组件8D号，找到的全部删除。
+     * 返回 Map：deleted=删除成功数量, notFound=文件中有但库里没找到的数量, failed=解析失败的数量
+     */
+    @Transactional
+    public java.util.Map<String, Integer> deleteByFile(MultipartFile file) {
+        if (file == null || file.isEmpty()) throw new BusinessException(ErrorCode.PARAM_ERROR, "上传文件不能为空");
+        SimpleBomBatchEntity active = activeBatch();
+        if (active == null) throw new BusinessException(ErrorCode.PARAM_ERROR, "当前没有有效的 BOM 批次，无数据可删除");
+
+        String fileName = Optional.ofNullable(file.getOriginalFilename()).orElse("").toLowerCase(Locale.ROOT);
+        int deleted = 0;
+        int notFound = 0;
+        int failed = 0;
+
+        try {
+            if (fileName.endsWith(".csv")) {
+                var result = parseCsvForDelete(file, active.getBatchNo());
+                deleted = result.get("deleted");
+                notFound = result.get("notFound");
+                failed = result.get("failed");
+            } else if (fileName.endsWith(".xlsx") || fileName.endsWith(".xls")) {
+                var result = parseExcelForDelete(file, active.getBatchNo());
+                deleted = result.get("deleted");
+                notFound = result.get("notFound");
+                failed = result.get("failed");
+            } else {
+                throw new BusinessException(ErrorCode.PARAM_ERROR, "仅支持 CSV 或 Excel(.xlsx/.xls) 格式");
+            }
+            syncBatchCount(active);
+            return java.util.Map.of("deleted", deleted, "notFound", notFound, "failed", failed);
+        } catch (BusinessException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new BusinessException(ErrorCode.PARAM_ERROR, "文件解析失败：" + e.getMessage());
+        }
+    }
+
+    private java.util.Map<String, Integer> parseCsvForDelete(MultipartFile file, String batchNo) throws Exception {
+        int deleted = 0, notFound = 0, failed = 0;
+        try (Reader reader = new InputStreamReader(new BufferedInputStream(file.getInputStream()), StandardCharsets.UTF_8);
+             CSVParser parser = CSVFormat.DEFAULT.builder().setTrim(true).setIgnoreEmptyLines(true).build().parse(reader)) {
+            int rowIdx = 0;
+            for (CSVRecord record : parser) {
+                if (rowIdx == 0) { rowIdx++; continue; }
+                rowIdx++;
+                String material = cell(record, 0, rowIdx == 1);
+                String component = cell(record, 1, false);
+                if (material.isBlank() && component.isBlank()) continue;
+                try {
+                    validateCode(material, "物料8D号");
+                    validateCode(component, "组件8D号");
+                    List<SimpleBomEntity> found = bomRepository.findByBatchNoAndMaterialCodeAndComponentCode(
+                            batchNo, material.trim(), component.trim());
+                    if (found.isEmpty()) {
+                        notFound++;
+                    } else {
+                        bomRepository.deleteAll(found);
+                        deleted += found.size();
+                    }
+                } catch (Exception ex) {
+                    failed++;
+                }
+            }
+        }
+        return java.util.Map.of("deleted", deleted, "notFound", notFound, "failed", failed);
+    }
+
+    private java.util.Map<String, Integer> parseExcelForDelete(MultipartFile file, String batchNo) throws Exception {
+        int deleted = 0, notFound = 0, failed = 0;
+        try (InputStream is = new BufferedInputStream(file.getInputStream());
+             org.apache.poi.ss.usermodel.Workbook workbook = org.apache.poi.ss.usermodel.WorkbookFactory.create(is)) {
+            org.apache.poi.ss.usermodel.Sheet sheet = workbook.getSheetAt(0);
+            int rowIdx = 0;
+            for (org.apache.poi.ss.usermodel.Row row : sheet) {
+                if (rowIdx == 0) { rowIdx++; continue; }
+                rowIdx++;
+                String material = getCellValue(row, 0);
+                String component = getCellValue(row, 1);
+                if (material.isBlank() && component.isBlank()) continue;
+                try {
+                    validateCode(material, "物料8D号");
+                    validateCode(component, "组件8D号");
+                    List<SimpleBomEntity> found = bomRepository.findByBatchNoAndMaterialCodeAndComponentCode(
+                            batchNo, material.trim(), component.trim());
+                    if (found.isEmpty()) {
+                        notFound++;
+                    } else {
+                        bomRepository.deleteAll(found);
+                        deleted += found.size();
+                    }
+                } catch (Exception ex) {
+                    failed++;
+                }
+            }
+        }
+        return java.util.Map.of("deleted", deleted, "notFound", notFound, "failed", failed);
+    }
+
+    private String getCellValue(org.apache.poi.ss.usermodel.Row row, int idx) {
+        if (row == null) return "";
+        org.apache.poi.ss.usermodel.Cell cell = row.getCell(idx);
+        if (cell == null) return "";
+        String value;
+        switch (cell.getCellType()) {
+            case STRING: value = cell.getStringCellValue(); break;
+            case NUMERIC: value = String.valueOf((long) cell.getNumericCellValue()); break;
+            default: value = "";
+        }
+        return value == null ? "" : value.trim();
+    }
+
     private void markFailed(SimpleBomBatchEntity batch, String reason) {
         batch.setStatus(SimpleBomBatchStatus.FAILED);
         batch.setFinishedAt(LocalDateTime.now());

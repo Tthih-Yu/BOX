@@ -11,8 +11,18 @@
       <div class="right" v-if="canWrite">
         <el-upload
           :show-file-list="false"
+          :before-upload="onPickDelete"
+          accept=".csv,.xlsx,.xls"
+          style="display:inline-block"
+        >
+          <el-button type="warning" plain :loading="deleting">上传删除</el-button>
+        </el-upload>
+        <el-button type="danger" plain style="margin-left:8px" @click="confirmDeleteAll">全部删除</el-button>
+        <el-upload
+          :show-file-list="false"
           :before-upload="onPick"
           accept=".csv"
+          style="display:inline-block;margin-left:8px"
         >
           <el-button type="success" :icon="UploadFilled" :loading="importing">{{ importing ? '导入中…' : 'CSV 高速导入' }}</el-button>
         </el-upload>
@@ -100,6 +110,7 @@ import { ROLE_SETS } from '../permissions'
 
 const canWrite = computed(() => hasAnyRole(ROLE_SETS.planner as any))
 const importing = ref(false)
+const deleting = ref(false)
 const activateNow = ref(true)
 const materialCode = ref('')
 const activeBatch = ref<any>(null)
@@ -184,6 +195,89 @@ async function removeRow(row:any){
   ElMessage.success('已删除')
   await reloadAll()
 }
+
+async function confirmDeleteAll(){
+  if (!activeBatch.value) { ElMessage.warning('当前无有效 BOM 批次，无数据可删除'); return }
+  try {
+    await ElMessageBox.confirm(
+      `即将删除当前有效批次【${activeBatch.value.batchNo}】的全部 ${activeBatch.value.successRows} 条 BOM 数据，该操作不可恢复！`,
+      '危险操作：全部删除',
+      { type: 'error', confirmButtonText: '我再想想', cancelButtonText: '取消' }
+    )
+  } catch {
+    return
+  }
+  let countdown = 3
+  const h = ElMessageBox
+  const confirmDelete = () => {
+    h.close()
+    executeDeleteAll()
+  }
+  const updateContent = () => {
+    if (countdown > 0) {
+      h.alert(`请再次确认：将清空当前有效批次的全部 BOM 数据。\n\n${countdown} 秒后可以确认删除...`, '二次确认', {
+        showClose: false,
+        showConfirmButton: false,
+        showCancelButton: true,
+        cancelButtonText: '取消',
+        type: 'warning'
+      })
+      countdown--
+      setTimeout(updateContent, 1000)
+    } else {
+      h.close()
+      h.confirm('最后确认：确定要删除全部 BOM 数据？', '最终确认', {
+        type: 'error',
+        confirmButtonText: '确认删除',
+        cancelButtonText: '取消'
+      }).then(confirmDelete).catch(() => {})
+    }
+  }
+  updateContent()
+}
+
+async function executeDeleteAll(){
+  try {
+    const res:any = await del('/simple-bom/rows')
+    ElMessage.success(`已删除 ${res?.deleted ?? 0} 条 BOM 数据`)
+    await reloadAll()
+  } catch { /* 拦截器已提示 */ }
+}
+
+async function onPickDelete(file:File){
+  if (!activeBatch.value) { ElMessage.warning('当前无有效 BOM 批次，无数据可删除'); return false }
+  try {
+    await ElMessageBox.confirm(
+      `即将上传文件进行批量删除，系统会将文件中每一行的"物料8D号+组件8D号"与当前有效批次精确匹配，找到的全部删除。该操作不可恢复，确认继续？`,
+      '批量删除确认',
+      { type: 'warning' }
+    )
+  } catch {
+    return false
+  }
+  try {
+    deleting.value = true
+    const fd = new FormData()
+    fd.append('file', file)
+    const res:any = await post('/simple-bom/delete-by-file', fd, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      timeout: UPLOAD_TIMEOUT_MS
+    })
+    const deleted = res?.deleted ?? 0
+    const notFound = res?.notFound ?? 0
+    const failed = res?.failed ?? 0
+    if (deleted > 0) {
+      ElMessage.success(`批量删除完成：成功删除 ${deleted} 条${notFound > 0 ? `，未找到 ${notFound} 条` : ''}${failed > 0 ? `，解析失败 ${failed} 条` : ''}`)
+    } else {
+      ElMessage.warning(`未删除任何数据：未找到 ${notFound} 条，解析失败 ${failed} 条`)
+    }
+    await reloadAll()
+  } catch { /* 拦截器已提示 */ } finally {
+    deleting.value = false
+  }
+  return false
+}
+
 function statusLabel(s:string){
   return ({ RUNNING:'导入中', READY:'待启用', ACTIVE:'当前有效', ARCHIVED:'已归档', FAILED:'失败' } as Record<string,string>)[s] || s
 }

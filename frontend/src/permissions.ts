@@ -18,7 +18,6 @@ export interface RouteMetaItem { path:string; title:string; roles:UserRole[]; me
 export const ROUTE_META:RouteMetaItem[] = [
   { path:'/dashboard', title:'首页看板', roles:ROLE_SETS.all, icon:'DataBoard' },
   { path:'/big-screen', title:'现场大屏', roles:ROLE_SETS.all, icon:'Monitor' },
-  { path:'/scan', title:'现场扫码', roles:ROLE_SETS.lineOps, icon:'FullScreen' },
   { path:'/tasks', title:'仓库补货任务', roles:ROLE_SETS.all, icon:'List' },
   { path:'/box-pool', title:'周转盒池/空盒回收', roles:ROLE_SETS.all, icon:'Box' },
   { path:'/print-jobs', title:'出货标签打印', roles:['ADMIN','PLANNER','WAREHOUSE','VIEWER'], icon:'Tickets' },
@@ -31,7 +30,7 @@ export const ROUTE_META:RouteMetaItem[] = [
   { path:'/simple-bom', title:'简单BOM', roles:['ADMIN','PLANNER','WAREHOUSE','VIEWER'], group:'master' },
   { path:'/weekly-plan', title:'周计划', roles:['ADMIN','PLANNER','WAREHOUSE','VIEWER'], group:'master' },
   { path:'/weekly-plan-template', title:'周计划模板', roles:['ADMIN','PLANNER','WAREHOUSE','VIEWER'], group:'master' },
-  { path:'/station-materials', title:'工位用料', roles:ROLE_SETS.masterRead, group:'master' },
+  { path:'/station-materials', title:'物料用量看板', roles:ROLE_SETS.masterRead, group:'master' },
   { path:'/inventory', title:'仓库库存', roles:ROLE_SETS.warehousePlanner, group:'master' },
   { path:'/labels', title:'标签管理', roles:ROLE_SETS.all, group:'label' },
   { path:'/label-templates', title:'标签模板', roles:ROLE_SETS.warehousePlanner, group:'label' },

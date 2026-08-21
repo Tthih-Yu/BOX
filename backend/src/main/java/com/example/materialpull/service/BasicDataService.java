@@ -193,6 +193,11 @@ public class BasicDataService {
         entity.setWarehouseLocation(blankToNull(entity.getWarehouseLocation()));
         entity.setDeliveryAddress(blankToNull(entity.getDeliveryAddress()));
         entity.setDeliveryArea(firstNonBlank(entity.getDeliveryArea(), "1"));
+        String factory = blankToNull(entity.getFactory());
+        if (factory != null && !Set.of("弋江", "三山").contains(factory)) {
+            throw new BusinessException(ErrorCode.PARAM_ERROR, "工厂只能是弋江或三山");
+        }
+        entity.setFactory(factory);
         entity.setEnabled(entity.getEnabled() == null || entity.getEnabled());
     }
 

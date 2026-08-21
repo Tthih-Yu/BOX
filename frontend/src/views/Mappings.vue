@@ -6,6 +6,7 @@
     delete-url="/mappings"
     :columns="columns"
     :write-roles="ROLE_SETS.planner"
+    server-pagination
   >
     <template #toolbar-extra="{ reload }">
       <ImportButton
@@ -147,6 +148,7 @@ async function confirmAreaDelete() {
 const columns = [
   { prop:'mappingOrder', label:'序号', type:'number', width:90 },
   { prop:'lineMaterialCode', label:'物料号', width:160 },
+  { prop:'factory', label:'工厂', options:[{label:'弋江',value:'弋江'},{label:'三山',value:'三山'}], width:120 },
   { prop:'warehouseCode', label:'仓库代号', width:160 },
   { prop:'boxSize', label:'盒子大小', width:120 },
   { prop:'quantity', label:'数量', type:'number', width:110 },

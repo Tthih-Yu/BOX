@@ -61,7 +61,7 @@ public class ImportService {
      */
     private static final Map<String, String[]> SCHEMAS = Map.of(
             "materials", new String[]{"materialCode", "warehouseMaterialCode", "materialName", "spec", "unit", "category"},
-            "mappings", new String[]{"mappingOrder", "lineMaterialCode", "warehouseCode", "boxSize", "quantity", "deliveryType", "warehouseLocation", "deliveryAddress", "remark", "deliveryArea", "warehouseMaterialCode", "singleUnitUsage"},
+            "mappings", new String[]{"mappingOrder", "lineMaterialCode", "warehouseCode", "boxSize", "quantity", "deliveryType", "warehouseLocation", "deliveryAddress", "remark", "deliveryArea", "warehouseMaterialCode", "singleUnitUsage", "factory"},
             "stationMaterials", new String[]{"lineCode", "stationCode", "stationName", "materialCode", "materialName", "warehouseMaterialCode", "standardBoxQty", "dailyUsage", "triggerQty"},
             "factoryLabels", new String[]{"warehouseCode", "barcodeValue", "primaryScanValue", "materialCode", "materialName", "warehouseMaterialCode", "warehouseAddress", "sendStationAddress", "boxSize", "standardQty", "unit", "delivererEmployeeNo", "lineCode", "stationCode", "stationName", "printDate", "bindBox", "boxSide", "containerType", "remark"},
             "siteLabels", new String[]{"areaCode", "kanbanCardNo", "barcodeValue", "projectCode", "routeName", "deliveryAddress", "materialCode", "materialName", "warehouseMaterialCode", "standardQty", "boxSide", "warehouseLocation", "specText", "unit", "printDate", "lineCode", "stationCode", "stationName", "bindBox"},
@@ -81,6 +81,7 @@ public class ImportService {
         m.put("category", new String[]{"类别", "分类"});
         m.put("mappingOrder", new String[]{"序号", "排序", "顺序"});
         m.put("lineMaterialCode", new String[]{"物料号", "料号", "产线物料号", "零件号"});
+        m.put("factory", new String[]{"工厂", "所属工厂", "生产工厂"});
         m.put("warehouseCode", new String[]{"仓库代号", "仓库号", "仓位代号"});
         m.put("boxSize", new String[]{"盒子大小", "盒型", "箱型", "盒子"});
         m.put("quantity", new String[]{"数量", "标准数量", "标准量"});
@@ -176,7 +177,7 @@ public class ImportService {
     @Transactional
     public void applyOverwrite(String importType) {
         if ("mappings".equals(importType)) {
-            mappingRepository.deleteAllInBatch();
+            // 料号映射采用逐行 upsert：合法行覆盖同仓库代号，失败行必须保留原数据，禁止预先清空全表。
             return;
         }
         throw new BusinessException(ErrorCode.PARAM_ERROR, "该导入类型不支持覆盖上传：" + importType);
@@ -441,6 +442,15 @@ public class ImportService {
         MaterialMappingEntity m = new MaterialMappingEntity();
         m.setMappingOrder(r.intValOrDefault("mappingOrder", 1));
         m.setLineMaterialCode(r.str("lineMaterialCode"));
+        String factory = r.str("factory").trim();
+        String alternateFactory = r.str("factoryAlternate").trim();
+        if (!factory.isEmpty() && !alternateFactory.isEmpty() && !factory.equals(alternateFactory)) {
+            throw new BusinessException(ErrorCode.PARAM_ERROR, "工厂与 factory 两列表头的值冲突");
+        }
+        factory = factory.isEmpty() ? alternateFactory : factory;
+        if (factory.isEmpty()) throw new BusinessException(ErrorCode.PARAM_ERROR, "工厂不能为空，只允许弋江或三山");
+        if (!Set.of("弋江", "三山").contains(factory)) throw new BusinessException(ErrorCode.PARAM_ERROR, "工厂只能是弋江或三山，当前值=" + factory);
+        m.setFactory(factory);
         m.setWarehouseCode(r.str("warehouseCode"));
         m.setWarehouseMaterialCode(firstNonBlank(r.str("warehouseMaterialCode"), r.str("warehouseCode")));
         m.setBoxSize(r.str("boxSize"));
@@ -529,9 +539,13 @@ public class ImportService {
                 String header = normalizeHeader(headerCells.get(i));
                 if (header.isEmpty()) continue;
                 String field = matchField(schema, header);
-                if (field != null && !byField.containsKey(field)) {
-                    byField.put(field, i);
-                    matched++;
+                if (field != null) {
+                    if (!byField.containsKey(field)) {
+                        byField.put(field, i);
+                        matched++;
+                    } else if ("factory".equals(field)) {
+                        byField.put("factoryAlternate", i);
+                    }
                 }
             }
             if (matched >= 2) return byField;

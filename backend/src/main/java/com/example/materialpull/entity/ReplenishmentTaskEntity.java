@@ -24,6 +24,8 @@ public class ReplenishmentTaskEntity {
     private Long id;
     @Version private Long version;
     private String taskNo;
+    /** 创建任务时固化的工厂快照；空值表示未维护工厂。 */
+    private String factory;
     private String sourceLabelCode;
     private String barcodeValue;
     private String warehouseCode;

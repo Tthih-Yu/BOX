@@ -170,6 +170,7 @@ public class PrintJobService {
         PrintJobEntity job = new PrintJobEntity();
         job.setPrintJobNo(IdGenerator.id("PRN"));
         job.setTaskNo(task.getTaskNo());
+        job.setFactory(task.getFactory());
         job.setLabelCode(task.getSourceLabelCode());
         job.setPrintType(firstNonBlank(printType, properties.getDefaultPrintType(), "OUTBOUND_LABEL"));
         job.setPrinterName(firstNonBlank(printerName, properties.getDefaultPrinterName()));
@@ -235,7 +236,7 @@ public class PrintJobService {
 
     private String payload(PrintJobEntity job, ReplenishmentTaskEntity t) {
         boolean urgent = t.getPriority() == PriorityLevel.URGENT || "URGENT".equalsIgnoreCase(firstNonBlank(t.getDeliveryMode(), "")) || "SPARE".equalsIgnoreCase(firstNonBlank(t.getLabelUsageType(), ""));
-        return "{\"printJobNo\":\"" + esc(job.getPrintJobNo()) + "\",\"taskNo\":\"" + esc(t.getTaskNo()) + "\",\"labelCode\":\"" + esc(t.getSourceLabelCode()) + "\",\"printType\":\"" + esc(job.getPrintType()) + "\",\"printerName\":\"" + esc(job.getPrinterName()) + "\",\"barcode\":\"" + esc(t.getWarehouseCode()) + "\",\"warehouseCode\":\"" + esc(t.getWarehouseCode()) + "\",\"materialCode\":\"" + esc(t.getMaterialCode()) + "\",\"materialName\":\"" + esc(firstNonBlank(t.getMaterialName(), t.getMaterialCode(), "")) + "\",\"materialImageUrl\":\"" + esc(t.getMaterialImageUrl()) + "\",\"boxSize\":\"" + esc(t.getBoxSize()) + "\",\"qty\":\"" + t.getRequestQty() + "\",\"from\":\"" + esc(firstNonBlank(t.getWarehouseAddress(), t.getWarehouseLocation(), "")) + "\",\"to\":\"" + esc(firstNonBlank(t.getSendStationAddress(), t.getDeliveryAddress(), t.getStationCode())) + "\",\"delivererEmployeeNo\":\"" + esc(t.getDelivererEmployeeNo()) + "\",\"deliveryMode\":\"" + (urgent ? "URGENT" : "NORMAL") + "\",\"usageType\":\"" + esc(firstNonBlank(t.getLabelUsageType(), urgent ? "SPARE" : "USE")) + "\",\"zpl\":\"" + esc(zpl(t)) + "\"}";
+        return "{\"printJobNo\":\"" + esc(job.getPrintJobNo()) + "\",\"factory\":\"" + esc(displayFactory(job.getFactory())) + "\",\"taskNo\":\"" + esc(t.getTaskNo()) + "\",\"labelCode\":\"" + esc(t.getSourceLabelCode()) + "\",\"printType\":\"" + esc(job.getPrintType()) + "\",\"printerName\":\"" + esc(job.getPrinterName()) + "\",\"barcode\":\"" + esc(t.getWarehouseCode()) + "\",\"warehouseCode\":\"" + esc(t.getWarehouseCode()) + "\",\"materialCode\":\"" + esc(t.getMaterialCode()) + "\",\"materialName\":\"" + esc(firstNonBlank(t.getMaterialName(), t.getMaterialCode(), "")) + "\",\"materialImageUrl\":\"" + esc(t.getMaterialImageUrl()) + "\",\"boxSize\":\"" + esc(t.getBoxSize()) + "\",\"qty\":\"" + t.getRequestQty() + "\",\"from\":\"" + esc(firstNonBlank(t.getWarehouseAddress(), t.getWarehouseLocation(), "")) + "\",\"to\":\"" + esc(firstNonBlank(t.getSendStationAddress(), t.getDeliveryAddress(), t.getStationCode())) + "\",\"delivererEmployeeNo\":\"" + esc(t.getDelivererEmployeeNo()) + "\",\"deliveryMode\":\"" + (urgent ? "URGENT" : "NORMAL") + "\",\"usageType\":\"" + esc(firstNonBlank(t.getLabelUsageType(), urgent ? "SPARE" : "USE")) + "\",\"zpl\":\"" + esc(zpl(t)) + "\"}";
     }
 
     private String zpl(ReplenishmentTaskEntity t) {
@@ -377,6 +378,12 @@ public class PrintJobService {
     }
 
     private record LabelGeometry(int widthDots, int heightDots) {}
+
+    private String displayFactory(String factory) {
+        if (factory == null) return "未维护工厂";
+        String value = factory.trim();
+        return "弋江".equals(value) || "三山".equals(value) ? value : "未维护工厂";
+    }
 
     private String esc(String v) { return v == null ? "" : v.replace("\\", "\\\\").replace("\"", "\\\"").replace("\r", "\\r").replace("\n", "\\n"); }
 

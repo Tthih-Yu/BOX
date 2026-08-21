@@ -15,6 +15,7 @@ public interface SimpleBomRepository extends JpaRepository<SimpleBomEntity, Long
     Page<SimpleBomEntity> findByBatchNoAndMaterialCode(String batchNo, String materialCode, Pageable pageable);
     long countByBatchNo(String batchNo);
     List<SimpleBomEntity> findByBatchNoAndMaterialCode(String batchNo, String materialCode);
+    List<SimpleBomEntity> findByBatchNoAndMaterialCodeAndComponentCode(String batchNo, String materialCode, String componentCode);
 
     @Modifying
     @Query("delete from SimpleBomEntity e where e.batchNo = :batchNo")

@@ -25,6 +25,10 @@ public class LogExportService {
     private static final DateTimeFormatter FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
     public byte[] exportToXlsx(String sheetName, List<?> rows, List<String> columns) {
+        return exportToXlsx(sheetName, rows, columns, columns);
+    }
+
+    public byte[] exportToXlsx(String sheetName, List<?> rows, List<String> columns, List<String> headers) {
         if (columns == null || columns.isEmpty()) {
             throw new BusinessException(ErrorCode.PARAM_ERROR, "导出列定义不能为空");
         }
@@ -36,7 +40,7 @@ public class LogExportService {
             Row header = sheet.createRow(0);
             for (int i = 0; i < columns.size(); i++) {
                 Cell cell = header.createCell(i);
-                cell.setCellValue(columns.get(i));
+                cell.setCellValue(headers != null && i < headers.size() ? headers.get(i) : columns.get(i));
                 cell.setCellStyle(headerStyle);
             }
 

@@ -92,9 +92,11 @@ public class TaskService {
         lockService.execute("TASK:" + no, () -> {
             ReplenishmentTaskEntity t = taskRepository.findByTaskNoForUpdate(no)
                     .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "任务不存在：" + no));
-            if (t.getStatus() == TaskStatus.COMPLETED || t.getStatus() == TaskStatus.DELIVERING || t.getStatus() == TaskStatus.ARRIVED) {
-                throw new BusinessException(ErrorCode.STATE_CONFLICT, "已完成、配送中或已到达任务不能直接删除，请走完成/取消/异常闭环");
+            if (t.getStatus() == TaskStatus.CANCELLED) return null;
+            if (t.getStatus() == TaskStatus.COMPLETED) {
+                throw new BusinessException(ErrorCode.STATE_CONFLICT, "已完成任务不能取消；如标签未出纸，请在打印记录中补打");
             }
+            TaskStatus from = t.getStatus();
             releaseInventory(t);
             boxPoolService.releaseByTaskNo(t.getTaskNo(), OperatorResolver.currentOperator());
             printJobService.cancelByTaskNo(t.getTaskNo(), OperatorResolver.currentOperator());
@@ -102,9 +104,12 @@ public class TaskService {
             if (t.getBoxCode() != null && !t.getBoxCode().isBlank() && !Boolean.TRUE.equals(t.getInventoryDeducted())) {
                 markBox(t, BoxStatus.FULL_STANDBY, null);
             }
-            auditService.task(t.getTaskNo(), "DELETE", t.getStatus() == null ? null : t.getStatus().name(), "DELETED", OperatorResolver.currentOperator(), "人工删除任务，已释放关联资源");
-            taskRepository.delete(t);
-            pushService.publish("tasks", Map.of("taskNo", no, "deleted", true));
+            t.setStatus(TaskStatus.CANCELLED);
+            t.setLastActionAt(LocalDateTime.now());
+            t.setRemark(firstNonBlank(t.getRemark(), "") + (t.getRemark() == null || t.getRemark().isBlank() ? "" : "；") + "人工取消，历史记录保留");
+            taskRepository.save(t);
+            auditService.task(t.getTaskNo(), "CANCEL", from == null ? null : from.name(), TaskStatus.CANCELLED.name(), OperatorResolver.currentOperator(), "人工取消任务，已释放关联资源并保留历史统计");
+            pushService.publish("tasks", t);
             return null;
         });
     }

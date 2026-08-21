@@ -24,6 +24,17 @@
         </template>
       </el-table-column>
     </el-table>
+    <el-pagination
+      v-if="serverPagination"
+      v-model:current-page="page"
+      v-model:page-size="pageSize"
+      :page-sizes="[20, 50, 100, 200]"
+      :total="total"
+      layout="total, sizes, prev, pager, next, jumper"
+      style="margin-top:12px; justify-content:flex-end"
+      @current-change="load"
+      @size-change="onPageSizeChange"
+    />
     <el-dialog v-model="dialog" :title="form.id ? '编辑' : '新增'" width="760px">
       <el-form label-width="126px">
         <el-row :gutter="12">
@@ -53,12 +64,17 @@
   </div>
 </template>
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { get, post, del, tagType } from '../api'
 import { ElMessageBox, ElMessage } from 'element-plus'
-const props = defineProps<{ listUrl:string, saveUrl:string, deleteUrl?:string, columns:any[], writeRoles?:string[] }>()
+const props = defineProps<{ listUrl:string, saveUrl:string, deleteUrl?:string, columns:any[], writeRoles?:string[], serverPagination?:boolean }>()
 const rows = ref<any[]>([])
 const keyword = ref('')
+const page = ref(1)
+const pageSize = ref(50)
+const total = ref(0)
+let searchTimer:number | undefined
+let loadSequence = 0
 const dialog = ref(false)
 const form = ref<any>({})
 const visibleColumns = computed(() => props.columns.filter(c => !c.hiddenInTable && c.type !== 'password'))
@@ -69,6 +85,7 @@ const canWrite = computed(() => {
   return currentRole.value === 'ADMIN' || props.writeRoles.includes(currentRole.value)
 })
 const filtered = computed(() => {
+  if (props.serverPagination) return rows.value
   if (!keyword.value) return rows.value
   const k = keyword.value.toLowerCase()
   return rows.value.filter(r => JSON.stringify(r).toLowerCase().includes(k))
@@ -79,7 +96,25 @@ function optionLabel(col: any, val: any): string {
   if (!match) return val
   return typeof match === 'object' ? match.label : match
 }
-async function load(){ rows.value = await get(props.listUrl) }
+async function load(){
+  const sequence = ++loadSequence
+  const result:any = await get(props.listUrl, props.serverPagination
+    ? { page: page.value - 1, size: pageSize.value, keyword: keyword.value.trim() }
+    : undefined)
+  if (sequence !== loadSequence) return
+  if (props.serverPagination) {
+    rows.value = result?.items || []
+    total.value = Number(result?.total || 0)
+  } else {
+    rows.value = result || []
+  }
+}
+function onPageSizeChange(){ page.value = 1; load() }
+watch(keyword, () => {
+  if (!props.serverPagination) return
+  if (searchTimer) window.clearTimeout(searchTimer)
+  searchTimer = window.setTimeout(() => { page.value = 1; load() }, 300)
+})
 defineExpose({ load })
 function openEdit(row:any){ if (!canWrite.value) return; form.value = JSON.parse(JSON.stringify(row || {})); if ('password' in form.value) form.value.password = ''; dialog.value = true }
 async function save(){ if (!canWrite.value) return; await post(props.saveUrl, form.value); dialog.value=false; ElMessage.success('已保存'); load() }
@@ -91,4 +126,5 @@ async function remove(row:any){
   load()
 }
 onMounted(load)
+onUnmounted(() => { if (searchTimer) window.clearTimeout(searchTimer) })
 </script>

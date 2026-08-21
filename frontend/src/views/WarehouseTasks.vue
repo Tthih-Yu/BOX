@@ -50,7 +50,19 @@
       </div>
       <div class="hint">标准流程：接单 → 拣料 → 拣完 → 配送 → 到达 → 完成。点击行前的箭头展开完整字段。同一仓库代号在去重时间窗内重复扫码会被拦截（防手抖/重发）；时间窗可在「系统配置」的 task.dedup.window-minutes 修改，超过该时间再次用空可正常生成新任务。</div>
     </div>
-    <el-table :data="sortedRows" border stripe height="680" class="compact-task-table" @expand-change="onExpandChange" @sort-change="onSortChange">
+    <div class="warehouse-task-scope">
+      <div class="task-scope-switcher">
+        <div class="task-scope-track factory-track">
+          <span class="task-scope-label">工厂：</span>
+          <button v-for="factory in availableFactories" :key="factory.key" type="button" class="task-scope-chip" :class="{ active:selectedFactoryKey===factory.key }" @click="selectFactory(factory.key)">{{ factory.label }} {{ factory.count }}</button>
+        </div>
+        <div class="task-scope-track area-track">
+          <span class="task-scope-label">区域：</span>
+          <button v-for="area in availableAreas" :key="area.key" type="button" class="task-scope-chip area-chip" :class="{ active:selectedAreaKey===area.key, 'has-tasks':area.key!==ALL_AREAS && area.count>0 }" @click="selectedAreaKey=area.key">{{ area.label }}<template v-if="area.key!==ALL_AREAS"> {{ area.count }}</template></button>
+        </div>
+      </div>
+      <div class="task-scope-current"><b>当前：{{ selectedFactoryLabel }} / {{ selectedAreaLabel }}</b><span>{{ currentRows.length }} 条任务</span></div>
+      <el-table :data="currentRows" border stripe height="680" class="compact-task-table" @expand-change="onExpandChange" @sort-change="onSortChange">
       <el-table-column type="expand">
         <template #default="{row}">
           <div class="task-detail">
@@ -135,6 +147,7 @@
           </div>
         </template>
       </el-table-column>
+      <el-table-column label="工厂" width="100"><template #default="{row}">{{ factoryLabel(row) }}</template></el-table-column>
       <el-table-column prop="warehouseCode" label="仓库代号" width="120" />
       <el-table-column prop="deliveryArea" label="配送区域" width="100" sortable />
       <el-table-column prop="sendStationAddress" label="发送工位地址" width="160" />
@@ -176,26 +189,11 @@
           </div>
         </template>
       </el-table-column>
-    </el-table>
+      </el-table>
+    </div>
 
     <el-dialog v-model="printDialog" title="仓库条形码标签预览" width="560px">
-      <div v-if="printRow" class="warehouse-label-preview">
-        <div class="wl-top">
-          <div class="wl-usage" :class="{ urgent: isUrgent(printRow) }">{{ isUrgent(printRow) ? '紧急配送(备用)' : '正常配送(使用)' }}</div>
-          <div class="wl-barcode" v-html="barcodeSvg || ''"></div>
-        </div>
-        <div class="wl-mid">
-          <div class="wl-cell"><span>物料名称</span><b>{{ printRow.materialCode || printRow.materialName || '-' }}</b></div>
-          <div class="wl-cell"><span>仓储地址</span><b>{{ printRow.warehouseAddress || printRow.warehouseLocation || ' ' }}</b></div>
-          <div class="wl-cell"><span>货架工位地址</span><b class="small">{{ printRow.sendStationAddress || printRow.deliveryAddress || printRow.stationName || printRow.stationCode || ' ' }}</b></div>
-        </div>
-        <div class="wl-bottom">
-          <div class="wl-cell"><span>盒子大小</span><b>{{ printRow.boxSize || '-' }}</b></div>
-          <div class="wl-cell"><span>数量</span><b>{{ printRow.requestQty ?? '-' }}</b></div>
-          <div class="wl-cell"><span>送货人工号</span><b class="small">{{ printRow.delivererEmployeeNo || '-' }}</b></div>
-          <div class="wl-cell"><span>任务号</span><b class="tiny">{{ printRow.taskNo || '-' }}</b></div>
-        </div>
-      </div>
+      <WarehouseLabel v-if="printRow" :row="printRow" :barcode-svg="barcodeSvg" class="preview-label" />
      
       <el-form label-width="90px" style="margin-top:14px">
         <el-form-item label="打印机"><el-input v-model="printerName" placeholder="（仅后端打印服务用）本机浏览器打印无需填写" /></el-form-item>
@@ -206,6 +204,12 @@
         <el-button plain @click="printTask">提交到本地代理队列</el-button>
       </template>
     </el-dialog>
+
+    <div class="warehouse-label-print-root" aria-hidden="true">
+      <div v-for="row in browserPrintRows" :key="row.taskNo" class="warehouse-label-print-page">
+        <WarehouseLabel :row="row" :barcode-svg="browserPrintBarcodes[row.taskNo] || ''" />
+      </div>
+    </div>
 
     <el-dialog v-model="printSettingsDialog" title="定时自动打印设置" width="560px">
       <el-form label-width="130px">
@@ -239,7 +243,7 @@
   </div>
 </template>
 <script setup lang="ts">
-import { onMounted, onUnmounted, ref, computed } from 'vue'
+import { nextTick, onMounted, onUnmounted, ref, computed, watch } from 'vue'
 import { get, post, del, tagType } from '../api'
 import { loadBusinessMeta } from '../meta'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -247,7 +251,9 @@ import { CopyDocument, WarningFilled, ArrowDown, Search } from '@element-plus/ic
 import { canTaskAction, TASK_TABLE_ACTIONS } from '../permissions'
 import { runtimePrinterName, saveRuntimePrinterName } from '../config'
 import { connectRealtime } from '../realtime'
+import WarehouseLabel from '../components/WarehouseLabel.vue'
 const rows = ref<any[]>([])
+const mappingRows = ref<any[]>([])
 const status = ref('')
 const printFilter = ref('')
 const keyword = ref('')
@@ -262,6 +268,8 @@ const activeMoreStatusLabel = computed(() => moreStatuses.value.find(s => s.valu
 const printDialog = ref(false)
 const printRow = ref<any>(null)
 const barcodeSvg = ref('')
+const browserPrintRows = ref<any[]>([])
+const browserPrintBarcodes = ref<Record<string,string>>({})
 const printerName = ref(runtimePrinterName())
 const scanTrailMap = ref<Record<string, any[]>>({})
 const scanTrailLoading = ref<Record<string, boolean>>({})
@@ -270,6 +278,9 @@ const autoRefreshSec = ref<number>(Number(localStorage.getItem(AUTO_REFRESH_KEY)
 const lastRefreshText = ref('')
 let refreshTimer:number | undefined
 let closeRealtime:(() => void) | undefined
+const ALL_AREAS = '__all__'
+const selectedFactoryKey = ref('')
+const selectedAreaKey = ref(ALL_AREAS)
 const sortState = ref<{prop:string;order:string} | null>(null)
 
 const currentRole = (() => { try { return JSON.parse(localStorage.getItem('loginUser') || '{}').role || '' } catch { return '' } })()
@@ -392,6 +403,34 @@ const sortedRows = computed(() => {
     return wa.localeCompare(wb, 'zh-Hans-CN')
   })
 })
+function factoryLabel(row:any){ return String(row?.factory ?? '').trim() || '未维护工厂' }
+function factoryKey(row:any){ return factoryLabel(row) }
+const availableFactories=computed(()=>{
+  const counts=new Map<string,number>()
+  for(const row of mappingRows.value) counts.set(factoryKey(row),0)
+  for(const row of sortedRows.value) counts.set(factoryKey(row),(counts.get(factoryKey(row))||0)+1)
+  return Array.from(counts.entries()).sort(([a],[b])=>a.localeCompare(b,'zh-Hans-CN',{numeric:true})).map(([key,count])=>({key,label:key,count}))
+})
+const selectedFactoryLabel=computed(()=>availableFactories.value.find(f=>f.key===selectedFactoryKey.value)?.label || '未选择工厂')
+const selectedFactoryRows=computed(()=>sortedRows.value.filter(r=>factoryKey(r)===selectedFactoryKey.value))
+const availableAreas=computed(()=>{
+  const counts=new Map<string,number>()
+  for(const row of mappingRows.value){
+    if(factoryKey(row)!==selectedFactoryKey.value) continue
+    const area=String(row?.deliveryArea ?? '').trim()
+    if(area) counts.set(area,0)
+  }
+  for(const row of selectedFactoryRows.value){
+    const area=String(row?.deliveryArea ?? '').trim() || '未分类'
+    counts.set(area,(counts.get(area)||0)+1)
+  }
+  return [{key:ALL_AREAS,label:'全部',count:selectedFactoryRows.value.length},...Array.from(counts.entries()).sort(([a],[b])=>a.localeCompare(b,'zh-Hans-CN',{numeric:true})).map(([key,count])=>({key,label:key,count}))]
+})
+const selectedAreaLabel=computed(()=>selectedAreaKey.value===ALL_AREAS?'全部':selectedAreaKey.value)
+const currentRows=computed(()=>selectedAreaKey.value===ALL_AREAS?selectedFactoryRows.value:selectedFactoryRows.value.filter(r=>(String(r?.deliveryArea ?? '').trim()||'未分类')===selectedAreaKey.value))
+function selectFactory(key:string){ selectedFactoryKey.value=key; selectedAreaKey.value=ALL_AREAS }
+watch(availableFactories,factories=>{ if(!factories.some(f=>f.key===selectedFactoryKey.value)) selectedFactoryKey.value=factories[0]?.key||'' },{immediate:true})
+watch(availableAreas,areas=>{ if(!areas.some(a=>a.key===selectedAreaKey.value)) selectedAreaKey.value=ALL_AREAS })
 function onSortChange({ prop, order }:{prop:string;order:string}){
   sortState.value = order ? { prop, order } : null
 }
@@ -428,7 +467,11 @@ async function load(){
   const params:any = {}
   if (status.value && status.value !== 'ALL') params.status = status.value
   if (date.value) params.date = date.value
-  const list:any[] = await get('/tasks', Object.keys(params).length ? params : undefined)
+  const [list,mappings]:any[] = await Promise.all([
+    get('/tasks', Object.keys(params).length ? params : undefined),
+    get('/mappings').catch(()=>[])
+  ])
+  mappingRows.value=Array.isArray(mappings)?mappings:[]
   rows.value = status.value === '' ? list.filter(t => t.status !== 'COMPLETED') : list
   lastRefreshText.value = `已更新 ${new Date().toLocaleTimeString()}`
 }
@@ -581,7 +624,7 @@ function onExpandChange(row:any, expandedRows:any[]){
 function canDo(row:any, action:string){ return canTaskAction(action, row.status) }
 function canShowComplete(row:any){ return !['COMPLETED','CANCELLED'].includes(String(row?.status || '').toUpperCase()) }
 function canPrint(row:any){ return ['CREATED','ACCEPTED','PICKING','PICKED'].includes(row.status) }
-function canDelete(row:any){ return !['DELIVERING','ARRIVED'].includes(row.status) }
+function canDelete(row:any){ return !['COMPLETED','CANCELLED'].includes(row.status) }
 function hasAnyAction(row:any){ return canPrint(row) || canDelete(row) || canShowComplete(row) || TASK_TABLE_ACTIONS.some(a => canDo(row, a)) }
 async function openPrint(row:any){
   printRow.value = row
@@ -600,80 +643,21 @@ async function openPrint(row:any){
   }
 }
 async function browserPrint(){
-  if (!printRow.value) return
-  const r = printRow.value
-  const urgent = isUrgent(r)
-  const usage = urgent ? '紧急配送(备用)' : '正常配送(使用)'
-  const material = r.materialCode || r.materialName || '-'
-  const from = r.warehouseAddress || r.warehouseLocation || ''
-  const to = r.sendStationAddress || r.deliveryAddress || r.stationName || r.stationCode || ''
-  const boxSize = r.boxSize || '-'
-  const qty = r.requestQty ?? '-'
-  const worker = r.delivererEmployeeNo || ''
-  const taskNo = r.taskNo || ''
-  const esc = (v:any) => String(v ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
-  // 标签物理尺寸 80mm(宽) × 50mm(高) 横版：上=用途药丸+条码，中=三栏，下=四栏。
-  const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>标签_${esc(taskNo)}</title>
-  <style>
-  @page{ size:80mm 50mm; margin:0; }
-  *{ box-sizing:border-box; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
-  html,body{ margin:0; padding:0; }
-  .lbl{ width:80mm; height:50mm; border:0.4mm solid #000; color:#000; font-family:'Microsoft YaHei',Arial,sans-serif; display:flex; flex-direction:column; }
-  .top{ height:16mm; flex:none; display:flex; align-items:center; gap:2mm; padding:0 3mm; border-bottom:0.4mm solid #000; }
-  .usage{ flex:none; background:#000; color:#fff; border-radius:4mm; padding:1.6mm 3mm; font-size:3.4mm; font-weight:800; white-space:nowrap; }
-  .bc{ flex:1; display:flex; align-items:center; justify-content:center; overflow:hidden; }
-  .bc svg{ width:100%; height:13mm; }
-  .mid{ display:flex; flex:1; border-bottom:0.4mm solid #000; min-height:0; }
-  .mid>.cell{ flex:1; border-right:0.4mm solid #000; }
-  .mid>.cell:last-child{ border-right:0; }
-  .bottom{ display:flex; flex:1; min-height:0; }
-  .bottom>.cell{ flex:1; border-right:0.4mm solid #000; }
-  .bottom>.cell:last-child{ border-right:0; }
-  .cell{ padding:1mm 2mm; display:flex; flex-direction:column; justify-content:center; gap:0.6mm; min-height:0; overflow:hidden; }
-  .cell .k{ font-size:2.3mm; color:#000; font-weight:600; line-height:1; }
-  .cell .v{ font-size:4mm; font-weight:800; word-break:break-all; line-height:1.1; }
-  .cell .v.small{ font-size:3mm; }
-  .cell .v.tiny{ font-size:2.2mm; letter-spacing:0.1mm; }
-  </style></head><body>
-  <div class="lbl">
-    <div class="top">
-      <div class="usage">${esc(usage)}</div>
-      <div class="bc">${barcodeSvg.value || ''}</div>
-    </div>
-    <div class="mid">
-      <div class="cell"><div class="k">物料名称</div><div class="v">${esc(material)}</div></div>
-      <div class="cell"><div class="k">仓储地址</div><div class="v">${esc(from)}</div></div>
-      <div class="cell"><div class="k">货架工位地址</div><div class="v small">${esc(to)}</div></div>
-    </div>
-    <div class="bottom">
-      <div class="cell"><div class="k">盒子大小</div><div class="v">${esc(boxSize)}</div></div>
-      <div class="cell"><div class="k">数量</div><div class="v">${esc(qty)}</div></div>
-      <div class="cell"><div class="k">送货人工号</div><div class="v small">${esc(worker) || '-'}</div></div>
-      <div class="cell"><div class="k">任务号</div><div class="v tiny">${esc(taskNo)}</div></div>
-    </div>
-  </div>
-  </body></html>`
-  const w = window.open('', '_blank', 'width=760,height=520')
-  if (!w) { ElMessage.warning('浏览器拦截了打印窗口，请允许本站弹出窗口后重试'); return }
-  w.document.open()
-  w.document.write(html)
-  w.document.close()
-  // 打印从父窗口(脚本合规于 CSP 'self')触发；子窗口内联脚本会被 CSP script-src 'self' 拦截导致打印不弹。
-  const triggerPrint = () => {
-    try {
-      w.focus()
-      w.onafterprint = () => { try { w.close() } catch {} }
-      w.print()
-    } catch { /* 用户可在弹出的标签窗口内手动 Ctrl+P 打印 */ }
-  }
-  if (w.document.readyState === 'complete') setTimeout(triggerPrint, 200)
-  else w.onload = () => setTimeout(triggerPrint, 200)
-  ElMessage.success('已调起浏览器打印，请在弹出的对话框选斑马打印机，纸张 80×50mm（横向），缩放100%、边距无；打印后该任务将自动标记为已完成')
+  const row = printRow.value
+  if (!row) return
+  await printLabelsInBrowser([row], { [row.taskNo]: barcodeSvg.value })
+  ElMessage.success("已调起浏览器打印：80×50mm，边距0，缩放100%；任务已记录为浏览器打印已调起")
   try {
-    await post('/print-jobs', { taskNo: r.taskNo, printerName: (printerName.value.trim() || '浏览器打印'), printType: 'WAREHOUSE_BARCODE_LABEL', printChannel: 'BROWSER' })
+    await post("/print-jobs", { taskNo:row.taskNo, printerName:(printerName.value.trim() || "浏览器打印"), printType:"WAREHOUSE_BARCODE_LABEL", printChannel:"BROWSER" })
     load()
   } catch {}
   printDialog.value = false
+}
+async function printLabelsInBrowser(rows:any[], barcodes:Record<string,string>){
+  browserPrintRows.value = rows
+  browserPrintBarcodes.value = barcodes
+  await nextTick()
+  window.print()
 }
 async function printTask(){
   if (!printRow.value) return
@@ -686,11 +670,11 @@ async function printTask(){
 }
 async function act(row:any, action:string){ await post(`/tasks/${row.taskNo}/${action}`, { expectedStatus: row.status }); ElMessage.success('操作成功'); load() }
 async function deleteTask(row:any){
-  await ElMessageBox.confirm(`确认删除任务 ${row.taskNo}？删除会释放库存锁定、取消打印/AGV并移除任务记录。`, '删除任务确认', { type:'warning', confirmButtonText:'继续删除', cancelButtonText:'取消' })
-  const result = await ElMessageBox.prompt(`请再次输入任务号 ${row.taskNo} 以确认删除`, '二次确认', { confirmButtonText:'确认删除', cancelButtonText:'取消', inputPattern:new RegExp(`^${row.taskNo.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`), inputErrorMessage:'输入的任务号不一致' })
+  await ElMessageBox.confirm(`确认取消任务 ${row.taskNo}？系统会释放库存锁定、取消打印/AGV，但永久保留任务用于历史统计。`, '取消任务确认', { type:'warning', confirmButtonText:'继续取消', cancelButtonText:'返回' })
+  const result = await ElMessageBox.prompt(`请再次输入任务号 ${row.taskNo} 以确认取消`, '二次确认', { confirmButtonText:'确认取消', cancelButtonText:'返回', inputPattern:new RegExp(`^${row.taskNo.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`), inputErrorMessage:'输入的任务号不一致' })
   if (result.value !== row.taskNo) return
   await del(`/tasks/${encodeURIComponent(row.taskNo)}`)
-  ElMessage.success('任务已删除')
+  ElMessage.success('任务已取消，历史统计记录已保留')
   load()
 }
 async function complete(row:any){
@@ -726,6 +710,21 @@ onUnmounted(()=>{
 </script>
 
 <style scoped>
+.warehouse-factory-groups{display:flex;flex-direction:column;gap:14px}.warehouse-factory-group{border:1px solid rgb(203,213,225);border-radius:12px;overflow:hidden;background:white}.warehouse-factory-title{width:100%;border:0;background:rgb(239,246,255);color:rgb(30,58,138);padding:12px 16px;display:flex;align-items:center;justify-content:space-between;cursor:pointer}.warehouse-factory-title b{font-size:17px}.warehouse-factory-title small{margin-left:12px;color:rgb(100,116,139)}
+.warehouse-task-scope{overflow:visible;border:1px solid #e2e8f0;border-radius:10px;background:#fff}
+.task-scope-switcher{position:sticky;top:0;z-index:20;display:flex;align-items:center;gap:22px;min-width:0;padding:10px 16px;border-bottom:1px solid #e2e8f0;background:rgb(255 255 255 / 96%);box-shadow:0 4px 12px rgb(15 23 42 / 5%);backdrop-filter:blur(8px)}
+.task-scope-track{display:flex;align-items:center;gap:7px;min-width:0;overflow-x:auto;white-space:nowrap;scrollbar-width:thin}
+.task-scope-switcher .factory-track{flex:0 1 auto}.task-scope-switcher .area-track{flex:1 1 0}
+.task-scope-label{position:sticky;left:0;z-index:1;flex:0 0 auto;padding:4px 2px;background:#fff;color:#475569;font-size:13px;font-weight:600}
+.task-scope-chip{flex:0 0 auto;height:32px;padding:0 13px;border:1px solid #cbd5e1;border-radius:7px;background:#fff;color:#334155;font-size:13px;font-weight:600;line-height:30px;cursor:pointer}
+.task-scope-chip:hover{border-color:#60a5fa;color:#2563eb}.task-scope-chip.active{border-color:#2563eb;background:#2563eb;color:#fff}
+.task-scope-chip.area-chip{display:inline-flex;align-items:center;gap:7px}
+.task-scope-chip.area-chip.has-tasks{font-weight:800;animation:warehouse-area-police-light 1s steps(1,end) infinite}
+.task-scope-chip.area-chip.has-tasks:before{width:9px;height:9px;flex:0 0 auto;border-radius:50%;content:"";animation:warehouse-area-police-dot 1s steps(1,end) infinite}
+.task-scope-current{display:flex;align-items:center;gap:10px;padding:11px 16px;border-bottom:1px solid #e2e8f0}.task-scope-current b{font-size:15px}.task-scope-current span{color:#64748b;font-size:12px}
+@keyframes warehouse-area-police-light{0%,49%{border-color:#2563eb;background:#2563eb;color:#fff;box-shadow:0 0 0 2px rgb(37 99 235 / 22%),0 0 14px 3px rgb(37 99 235 / 50%)}50%,100%{border-color:#dc2626;background:#dc2626;color:#fff;box-shadow:0 0 0 2px rgb(220 38 38 / 22%),0 0 14px 3px rgb(220 38 38 / 52%)}}
+@keyframes warehouse-area-police-dot{0%,49%{background:#fff;box-shadow:0 0 7px 2px #fff}50%,100%{background:#fde047;box-shadow:0 0 8px 3px rgb(253 224 71 / 90%)}}
+@media(prefers-reduced-motion:reduce){.task-scope-chip.area-chip.has-tasks{border-color:#dc2626;background:#fff1f2;color:#b91c1c;box-shadow:0 0 0 2px rgb(220 38 38 / 18%);animation:none}.task-scope-chip.area-chip.has-tasks:before{background:#dc2626;box-shadow:none;animation:none}}
 .status-menu{display:inline-flex;align-items:center;gap:8px;flex-wrap:wrap;margin-right:8px;margin-bottom:8px;vertical-align:middle}.status-menu-label{color:#64748b;font-size:13px;font-weight:600}.status-menu .el-button{margin-left:0}
 .is-active-status{color:var(--el-color-primary);font-weight:600;background:var(--el-color-primary-light-9)}
 .refresh-tip{ margin-left: 10px; color: #64748b; font-size: 12px; }
@@ -733,23 +732,6 @@ onUnmounted(()=>{
 .pf-count{ color:#94a3b8; font-size:12px; margin-left:2px; }
 .ps-hint{ margin-left: 10px; color: #94a3b8; font-size: 12px; }
 .sort-label{ margin-left: 12px; color: #64748b; font-size: 13px; }
-.warehouse-label-preview{width:480px;height:300px;border:2px solid #111;background:#fff;color:#111;margin:0 auto;font-family:Arial,'Microsoft YaHei',sans-serif;box-sizing:border-box;display:flex;flex-direction:column}
-.warehouse-label-preview .wl-top{display:flex;align-items:center;gap:10px;height:96px;flex:none;border-bottom:2px solid #111;padding:0 14px}
-.warehouse-label-preview .wl-usage{flex:none;background:#111;color:#fff;border-radius:22px;padding:10px 16px;font-size:18px;font-weight:800;white-space:nowrap}
-.warehouse-label-preview .wl-usage.urgent{background:#111}
-.warehouse-label-preview .wl-barcode{flex:1;display:flex;align-items:center;justify-content:center;overflow:hidden}
-.warehouse-label-preview .wl-barcode :deep(svg){width:100%;height:82px;display:block}
-.warehouse-label-preview .wl-mid{display:flex;flex:1;border-bottom:2px solid #111;min-height:0}
-.warehouse-label-preview .wl-mid>.wl-cell{flex:1;border-right:2px solid #111}
-.warehouse-label-preview .wl-mid>.wl-cell:last-child{border-right:0}
-.warehouse-label-preview .wl-bottom{display:flex;flex:1;min-height:0}
-.warehouse-label-preview .wl-bottom>.wl-cell{flex:1;border-right:2px solid #111}
-.warehouse-label-preview .wl-bottom>.wl-cell:last-child{border-right:0}
-.warehouse-label-preview .wl-cell{display:flex;flex-direction:column;justify-content:center;gap:3px;min-height:0;overflow:hidden;padding:6px 10px}
-.warehouse-label-preview .wl-cell span{font-size:12px;font-weight:600;color:#333;line-height:1}
-.warehouse-label-preview .wl-cell b{font-size:22px;font-weight:800;word-break:break-all;line-height:1.1}
-.warehouse-label-preview .wl-cell b.small{font-size:17px}
-.warehouse-label-preview .wl-cell b.tiny{font-size:12px;letter-spacing:.2px}
 
 .task-detail{
   position: sticky;
@@ -943,4 +925,5 @@ onUnmounted(()=>{
   .scan-trail .trail-row{ grid-template-columns: 96px 130px 1fr; }
   .scan-trail .trail-row .trail-meta{ display:none; }
 }
+.preview-label{margin:0 auto}
 </style>
