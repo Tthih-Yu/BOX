@@ -27,6 +27,7 @@ public class PlanningService {
     private final StationMaterialRepository stationMaterialRepository;
     private final InventoryRepository inventoryRepository;
     private final ReplenishmentTaskRepository taskRepository;
+    private final MaterialMappingRepository mappingRepository;
     private final AuditService auditService;
     private final RealtimePushService pushService;
 
@@ -302,6 +303,7 @@ public class PlanningService {
             remaining = remaining.subtract(taskQty);
             ReplenishmentTaskEntity t = new ReplenishmentTaskEntity();
             t.setTaskNo(IdGenerator.idMinute("RP"));
+            t.setFactory(resolveMappingFactory(d.getMaterialCode()));
             t.setPlanNo(plan.getPlanNo());
             t.setDemandNo(d.getDemandNo());
             t.setLineCode(d.getLineCode());
@@ -326,6 +328,12 @@ public class PlanningService {
             tasks.add(t);
         }
         return tasks;
+    }
+
+    private String resolveMappingFactory(String materialCode) {
+        if (materialCode == null || materialCode.isBlank()) return null;
+        return mappingRepository.findByLineMaterialCodeAndEnabledTrueOrderByMappingOrderAscIdAsc(materialCode.trim()).stream()
+                .findFirst().map(MaterialMappingEntity::getFactory).orElse(null);
     }
 
     private FactoryDtos.InventoryAdjustmentRow toAdjustmentRow(MaterialDemandEntity d) {

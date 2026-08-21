@@ -36,7 +36,10 @@ public class BasicDataController {
 
     private static final List<String> MAPPING_EXPORT_COLUMNS = List.of(
             "mappingOrder", "lineMaterialCode", "warehouseCode", "boxSize", "quantity",
-            "deliveryType", "warehouseLocation", "deliveryAddress", "remark", "deliveryArea", "warehouseMaterialCode", "singleUnitUsage");
+            "deliveryType", "warehouseLocation", "deliveryAddress", "remark", "deliveryArea", "warehouseMaterialCode", "singleUnitUsage", "factory");
+    private static final List<String> MAPPING_EXPORT_HEADERS = List.of(
+            "序号", "物料号", "仓库代号", "盒子大小", "数量", "用途", "仓库位置",
+            "总装地址", "备注", "配送区域", "仓库料号", "单根用量", "工厂");
 
     @GetMapping("/materials")
     @RequireRoles({UserRole.PLANNER, UserRole.WAREHOUSE, UserRole.LINE, UserRole.VIEWER})
@@ -52,7 +55,14 @@ public class BasicDataController {
 
     @GetMapping("/mappings")
     @RequireRoles({UserRole.SUB_ADMIN, UserRole.PLANNER, UserRole.WAREHOUSE, UserRole.VIEWER})
-    public ApiResponse<List<MaterialMappingEntity>> mappings() { return ApiResponse.ok(mappingRepository.findTop1000ByOrderByLineMaterialCodeAscMappingOrderAscIdAsc()); }
+    public ApiResponse<?> mappings(@RequestParam(required = false) Integer page, @RequestParam(required = false) Integer size, @RequestParam(defaultValue = "") String keyword) {
+        if (page == null && size == null) return ApiResponse.ok(mappingRepository.findAllByOrderByLineMaterialCodeAscMappingOrderAscIdAsc());
+        int safePage = Math.max(page == null ? 0 : page, 0);
+        int safeSize = Math.min(Math.max(size == null ? 50 : size, 10), 200);
+        String query = keyword == null ? "" : keyword.trim();
+        var result = mappingRepository.findByLineMaterialCodeContainingIgnoreCaseOrWarehouseCodeContainingIgnoreCaseOrWarehouseMaterialCodeContainingIgnoreCaseOrDeliveryAddressContainingIgnoreCaseOrderByLineMaterialCodeAscMappingOrderAscIdAsc(query, query, query, query, PageRequest.of(safePage, safeSize));
+        return ApiResponse.ok(Map.of("items", result.getContent(), "total", result.getTotalElements()));
+    }
 
     @PostMapping("/mappings")
     @RequireRoles({UserRole.SUB_ADMIN, UserRole.PLANNER})
@@ -65,7 +75,7 @@ public class BasicDataController {
     @GetMapping("/mappings/export")
     @RequireRoles({UserRole.SUB_ADMIN, UserRole.PLANNER, UserRole.WAREHOUSE, UserRole.VIEWER})
     public ResponseEntity<byte[]> exportMappings() {
-        byte[] body = logExportService.exportToXlsx("料号映射", service.exportMappings(), MAPPING_EXPORT_COLUMNS);
+        byte[] body = logExportService.exportToXlsx("料号映射", service.exportMappings(), MAPPING_EXPORT_COLUMNS, MAPPING_EXPORT_HEADERS);
         String filename = logExportService.buildFileName("mappings");
         String encoded = URLEncoder.encode(filename, StandardCharsets.UTF_8).replace("+", "%20");
         HttpHeaders headers = new HttpHeaders();

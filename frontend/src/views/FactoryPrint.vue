@@ -1,10 +1,9 @@
 <template>
-  <div class="card">
-    <div class="toolbar">
+  <div class="factory-print-page">
+    <section class="toolbar print-toolbar">
       <div>
         <el-input v-model="printerName" placeholder="打印机名称" style="width:220px" />
         <el-input v-model="searchKeyword" clearable placeholder="搜索：任务号/工位/物料/仓库/数量等全部关键字" style="width:340px" />
-        <el-button type="primary" @click="batchPrint" :disabled="!filteredRows.length" :loading="batchPrinting">一键浏览器打印</el-button>
         <el-button type="success" plain @click="batchSubmitPrintJobs" :disabled="!filteredRows.length || !printerName.trim()" :loading="batchSubmitting">一键提交到本地代理队列</el-button>
         <el-select v-model="groupingMode" style="width:150px">
           <el-option label="按配送区域" value="area" />
@@ -17,46 +16,64 @@
           <el-option label="分类默认：时间晚→早" value="timeDesc" />
         </el-select>
         <el-button @click="load">刷新</el-button>
+        <el-select v-model="autoRefreshSec" style="width:150px" @change="onAutoRefreshChange">
+          <el-option :value="0" label="自动刷新：关闭" />
+          <el-option :value="10" label="每 10 秒" />
+          <el-option :value="30" label="每 30 秒" />
+          <el-option :value="60" label="每 1 分钟" />
+          <el-option :value="300" label="每 5 分钟" />
+        </el-select>
+        <span v-if="lastRefreshText" class="refresh-tip">{{ lastRefreshText }}</span>
         <el-button type="warning" plain @click="runAutoPrint">立即执行定时打印</el-button>
         <el-button type="success" plain @click="openAreaDialog">定时打印设置(按区域)</el-button>
       </div>
       <div class="hint">定时自动打印支持全局与按区域两种模式，按区域设置优先于全局。</div>
-    </div>
-    <div class="pending-panel">
+    </section>
+    <section class="pending-panel">
       <div class="pending-head">
         <div>
-          <h3>待打印补货任务</h3>
+          <h3>待打印补货任务</h3><p>按工厂与配送分类处理尚未生成打印作业的任务</p>
         </div>
         <div class="pending-actions">
           <el-tag type="warning" effect="plain">{{ filteredRows.length }} / {{ rawRows.length }} 条待生成</el-tag>
-          <el-tag type="info" effect="plain">{{ groupedRows.length }} 个分类</el-tag>
-          <el-button size="small" type="primary" plain :disabled="!filteredRows.length" :loading="batchPrinting" @click="batchPrint">一键浏览器打印</el-button>
+          <el-tag type="info" effect="plain">{{ factoryGroups.reduce((n,g)=>n+g.groups.length,0) }} 个分类</el-tag>
           <el-button size="small" type="success" plain :disabled="!filteredRows.length || !printerName.trim()" :loading="batchSubmitting" @click="batchSubmitPrintJobs">提交到代理队列</el-button>
           <el-button size="small" @click="loadPending">刷新待打印</el-button>
         </div>
       </div>
-      <el-empty v-if="!filteredRows.length" :description="rawRows.length ? '没有匹配搜索条件的待打印标签' : '暂无待打印标签'" />
-      <div v-else class="station-groups">
-        <section v-for="group in groupedRows" :key="group.category" class="station-group">
+      <div class="scope-switcher">
+        <div class="scope-track factory-track">
+          <span class="scope-label">工厂：</span>
+          <button v-for="factory in availableFactories" :key="factory.key" type="button" class="scope-chip" :class="{ active: selectedFactoryKey === factory.key }" @click="selectFactory(factory.key)">{{ factory.label }} {{ factory.count }}</button>
+        </div>
+        <div class="scope-track area-track">
+          <span class="scope-label">区域：</span>
+          <button v-for="area in availableAreas" :key="area.key" type="button" class="scope-chip area-chip" :class="{ active: selectedAreaKey === area.key, 'has-tasks': area.key !== ALL_AREAS && area.count > 0 }" @click="selectedAreaKey = area.key">{{ area.label }}<template v-if="area.key !== ALL_AREAS"> {{ area.count }}</template></button>
+        </div>
+      </div>
+      <el-alert v-if="!currentRows.length" type="info" :closable="false" :title="rawRows.length ? '当前工厂和区域没有匹配的待打印标签' : '暂无待打印标签'" style="margin-bottom:10px" />
+      <section v-else class="current-scope">
           <div class="station-title">
-            <div><b>{{ groupingMode === 'area' ? '配送区域' : '总装地址' }}：{{ group.category }}</b><span>{{ group.rows.length }} 张标签</span></div>
+            <div><b>当前：{{ selectedFactoryLabel }} / {{ selectedAreaLabel }}</b><span>{{ currentRows.length }} 张标签</span></div>
             <div class="group-actions">
-              <el-button size="small" type="primary" plain :loading="group.printing" @click="printGroup(group)">打印本类别</el-button>
-              <el-button size="small" type="success" plain :disabled="!printerName.trim()" :loading="group.submitting" @click="submitGroup(group)">提交本类别</el-button>
+              <el-button size="small" type="primary" plain :loading="batchPrinting" @click="printRows(currentRows, `已调起本区域打印`)">打印本区域</el-button>
+              <el-button size="small" type="success" plain :disabled="!printerName.trim()" :loading="batchSubmitting" @click="submitRows(currentRows, `已提交本区域`)">提交本区域</el-button>
               <div class="group-sort">
                 <small>组内排序</small>
-                <el-select v-model="groupSortMap[group.category]" size="small" style="width:132px">
+                <el-select v-model="groupSortMap[currentGroupKey]" size="small" style="width:132px">
                   <el-option label="拼音" value="pinyin" />
                   <el-option label="字母数字" value="alnum" />
                   <el-option label="时间早→晚" value="timeAsc" />
                   <el-option label="时间晚→早" value="timeDesc" />
+          <el-option label="仓储地址升序" value="warehouseAsc" />
+          <el-option label="仓储地址降序" value="warehouseDesc" />
                 </el-select>
               </div>
             </div>
           </div>
           <div class="thumb-grid">
-        <article v-for="row in group.rows" :key="row.taskNo" class="thumb-card" :class="{ urgent: isUrgentTask(row) }">
-          <div class="thumb-tags">
+        <article v-for="row in currentRows" :key="row.taskNo" class="thumb-card" :class="{ urgent: isUrgentTask(row), selected: isSelected(row) }">
+          <div class="thumb-tags"><el-checkbox :model-value="isSelected(row)" @change="checked => toggleSelected(row, Boolean(checked))" />
             <el-tag :type="isUrgentTask(row) ? 'danger' : 'success'" effect="dark" size="small">{{ isUrgentTask(row) ? '紧急' : '正常' }}</el-tag>
             <el-tag :type="tagType(row.status)" size="small">{{ row.status }}</el-tag>
           </div>
@@ -84,14 +101,13 @@
           </div>
         </article>
           </div>
-        </section>
-      </div>
-    </div>
+      </section>
+    </section>
 
-    <div class="records-panel">
+    <section class="records-panel">
       <div class="records-head">
         <div>
-          <h3>打印记录</h3>
+          <h3>打印记录</h3><p>查看浏览器与本地代理的历史打印状态</p>
         </div>
         <div class="records-actions">
           <el-select v-model="recordChannel" size="small" style="width:150px" @change="loadRecords">
@@ -111,6 +127,7 @@
         </div>
       </div>
       <el-table :data="records" border stripe size="small" height="360">
+        <el-table-column label="工厂" width="110"><template #default="{row}">{{ factoryName(row) }}</template></el-table-column>
         <el-table-column prop="taskNo" label="任务号" min-width="220" show-overflow-tooltip />
         <el-table-column prop="printJobNo" label="打印作业号" min-width="200" show-overflow-tooltip />
         <el-table-column label="打印方式" width="120">
@@ -132,27 +149,16 @@
           <template #default="{row}">{{ fmtTime(row.printedAt) }}</template>
         </el-table-column>
         <el-table-column prop="lastError" label="错误信息" min-width="160" show-overflow-tooltip />
+        <el-table-column label="操作" width="110" fixed="right">
+          <template #default="{row}">
+            <el-button size="small" type="primary" plain :loading="reprintingJobNo === row.printJobNo" @click="reprintRecord(row)">补打标签</el-button>
+          </template>
+        </el-table-column>
       </el-table>
-    </div>
+    </section>
 
     <el-dialog v-model="previewDialog" title="待打印标签预览" width="560px">
-      <div v-if="previewRow" class="warehouse-label-preview">
-        <div class="wl-top">
-          <div class="wl-usage" :class="{ urgent: isUrgentTask(previewRow) }">{{ isUrgentTask(previewRow) ? '紧急配送(备用)' : '正常配送(使用)' }}</div>
-          <div class="wl-barcode" v-html="previewBarcodeSvg || ''"></div>
-        </div>
-        <div class="wl-mid">
-          <div class="wl-cell"><span>物料名称</span><b>{{ previewField(previewRow, 'materialCode', 'materialName') }}</b></div>
-          <div class="wl-cell"><span>仓储地址</span><b>{{ previewField(previewRow, 'warehouseAddress', 'warehouseLocation') }}</b></div>
-          <div class="wl-cell"><span>货架工位地址</span><b class="small">{{ previewField(previewRow, 'sendStationAddress', 'deliveryAddress', 'stationName', 'stationCode') }}</b></div>
-        </div>
-        <div class="wl-bottom">
-          <div class="wl-cell"><span>盒子大小</span><b>{{ previewField(previewRow, 'boxSize') }}</b></div>
-          <div class="wl-cell"><span>数量</span><b>{{ previewField(previewRow, 'requestQty') }}</b></div>
-          <div class="wl-cell"><span>送货人工号</span><b class="small">{{ previewField(previewRow, 'delivererEmployeeNo') }}</b></div>
-          <div class="wl-cell"><span>任务号</span><b class="tiny">{{ previewRow.taskNo }}</b></div>
-        </div>
-      </div>
+      <WarehouseLabel v-if="previewRow" :row="previewRow" :barcode-svg="previewBarcodeSvg" class="preview-label" />
       <el-form label-width="90px" style="margin-top:14px">
         <el-form-item label="打印机"><el-input v-model="printerName" placeholder="后端打印服务用；浏览器打印无需填写" /></el-form-item>
       </el-form>
@@ -162,6 +168,12 @@
         <el-button plain @click="printPending(previewRow)">提交到本地代理队列</el-button>
       </template>
     </el-dialog>
+
+    <div class="warehouse-label-print-root" aria-hidden="true">
+      <div v-for="row in browserPrintRows" :key="row.taskNo" class="warehouse-label-print-page">
+        <WarehouseLabel :row="row" :barcode-svg="browserPrintBarcodes[row.taskNo] || ''" />
+      </div>
+    </div>
 
     <el-dialog v-model="areaDialog" title="定时打印设置（按配送区域）" width="720px">
       <el-alert type="info" :closable="false" show-icon style="margin-bottom:12px"
@@ -204,26 +216,58 @@
   </div>
 </template>
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { get, post, tagType } from '../api'
 import { ElMessage } from 'element-plus'
 import { runtimePrinterName, saveRuntimePrinterName } from '../config'
+import WarehouseLabel from '../components/WarehouseLabel.vue'
 const rawRows = ref<any[]>([])
+const mappingRows = ref<any[]>([])
 const printerName = ref(runtimePrinterName())
 const previewDialog = ref(false)
 const previewRow = ref<any>(null)
 const previewBarcodeSvg = ref('')
+const browserPrintRows = ref<any[]>([])
+const browserPrintBarcodes = ref<Record<string,string>>({})
 const searchKeyword = ref('')
-const defaultGroupSort = ref<'pinyin'|'alnum'|'timeAsc'|'timeDesc'>('pinyin')
+const selectedTaskNos = ref<Set<string>>(new Set())
+type SortMode = 'pinyin'|'alnum'|'timeAsc'|'timeDesc'|'warehouseAsc'|'warehouseDesc'
+const ALL_AREAS = '__all__'
+const selectedFactoryKey = ref<string>('')
+const selectedAreaKey = ref<string>(ALL_AREAS)
+const defaultGroupSort = ref<SortMode>('pinyin')
 const groupingMode = ref<'area'|'address'>('area')
-const groupSortMap = ref<Record<string, 'pinyin'|'alnum'|'timeAsc'|'timeDesc'>>({})
+const groupSortMap = ref<Record<string, SortMode>>({})
 const batchPrinting = ref(false)
 const batchSubmitting = ref(false)
 const records = ref<any[]>([])
 const recordChannel = ref('')
 const recordStatus = ref('')
+const reprintingJobNo = ref('')
 const printableStatuses = ['CREATED','ACCEPTED','PICKING','PICKED']
-async function load(){ await loadPending(); await loadRecords() }
+const AUTO_REFRESH_KEY = 'factoryPrintAutoRefreshSec'
+const autoRefreshSec = ref<number>(Number(localStorage.getItem(AUTO_REFRESH_KEY) || 30))
+const lastRefreshText = ref('')
+let refreshTimer:number | undefined
+let loading = false
+async function load(){
+  if (loading) return
+  loading = true
+  try {
+    await Promise.all([loadPending(), loadRecords()])
+    lastRefreshText.value = `已更新 ${new Date().toLocaleTimeString()}`
+  } finally {
+    loading = false
+  }
+}
+function setupAutoRefresh(){
+  if (refreshTimer){ window.clearInterval(refreshTimer); refreshTimer = undefined }
+  if (autoRefreshSec.value > 0) refreshTimer = window.setInterval(load, autoRefreshSec.value * 1000)
+}
+function onAutoRefreshChange(){
+  localStorage.setItem(AUTO_REFRESH_KEY, String(autoRefreshSec.value))
+  setupAutoRefresh()
+}
 async function loadRecords(){
   try {
     const list:any[] = await get('/print-jobs', recordStatus.value ? { status: recordStatus.value } : undefined)
@@ -261,8 +305,48 @@ function recordTagType(v:any){
   if (s === 'RENDERED' || s === 'CREATED') return 'warning'
   return 'info'
 }
+function recordLabelRow(record:any){
+  let snapshot:any = {}
+  try { snapshot = JSON.parse(record?.payload || '{}') || {} } catch { snapshot = {} }
+  return {
+    ...record,
+    ...snapshot,
+    taskNo: snapshot.taskNo || record?.taskNo,
+    factory: snapshot.factory || record?.factory,
+    warehouseCode: snapshot.warehouseCode || snapshot.barcode,
+    barcodeValue: snapshot.barcode || snapshot.warehouseCode,
+    requestQty: snapshot.requestQty ?? snapshot.qty,
+    warehouseAddress: snapshot.warehouseAddress || snapshot.from,
+    warehouseLocation: snapshot.from || snapshot.warehouseAddress,
+    sendStationAddress: snapshot.sendStationAddress || snapshot.to,
+    deliveryAddress: snapshot.to || snapshot.sendStationAddress,
+    labelUsageType: snapshot.labelUsageType || snapshot.usageType
+  }
+}
+async function reprintRecord(record:any){
+  if (!record?.taskNo || reprintingJobNo.value) return
+  reprintingJobNo.value = record.printJobNo || record.taskNo
+  try {
+    const row = recordLabelRow(record)
+    const svgMap = await renderBarcodes([row])
+    await printLabelsInBrowser([row], svgMap)
+    try {
+      await post("/print-jobs", { taskNo:row.taskNo, printerName:(printerName.value.trim() || "浏览器补打"), printType:record.printType || "WAREHOUSE_BARCODE_LABEL", printChannel:"BROWSER" })
+      await loadRecords()
+    } catch (e:any) {
+      ElMessage.warning(e?.response?.data?.message || e?.message || "标签已调起打印，但补打记录保存失败")
+      return
+    }
+    ElMessage.success(`已调起补打：`)
+  } catch (e:any) { ElMessage.error(e?.message || "补打标签失败") }
+  finally { reprintingJobNo.value = "" }
+}
 async function loadPending(){
-  const list:any[] = await get('/tasks')
+  const [list, mappings]:any[] = await Promise.all([
+    get('/tasks'),
+    get('/mappings').catch(() => [])
+  ])
+  mappingRows.value = Array.isArray(mappings) ? mappings : []
   rawRows.value = (Array.isArray(list) ? list : [])
     .filter(t => printableStatuses.includes(String(t.status || '').toUpperCase()))
     .filter(t => !t.printGenerated && !t.printJobNo)
@@ -293,7 +377,7 @@ async function printPending(row:any){
   load()
 }
 async function batchSubmitPrintJobs(){
-  await submitRows(filteredRows.value, '已提交全部筛选结果')
+  await submitRows(oneFactoryRows(batchRows()), '已提交全部筛选结果')
 }
 async function submitGroup(group:any){
   if (group.submitting) return
@@ -341,30 +425,19 @@ async function printRows(inputRows:any[], successPrefix:string){
   if (!inputRows.length) return
   batchPrinting.value = true
   const rows = [...inputRows]
-  const w = window.open('', '_blank', 'width=760,height=900')
-  if (!w) { ElMessage.warning('浏览器拦截了打印窗口，请允许本站弹出窗口后重试'); batchPrinting.value = false; return }
   try {
-    w.document.open()
-    w.document.write('<!doctype html><html><head><meta charset="utf-8"></head><body style="font-family:sans-serif;padding:24px;color:#333">正在生成条形码，请稍候…</body></html>')
-    w.document.close()
     const svgMap = await renderBarcodes(rows)
-    w.document.open()
-    w.document.write(batchPrintHtml(rows, svgMap))
-    w.document.close()
-    triggerChildPrint(w, 300, false)
-    ElMessage.success(`${successPrefix}：${rows.length} 张，请选择本机斑马打印机`)
+    await printLabelsInBrowser(rows, svgMap)
+    ElMessage.success(`： 张`)
     for (const row of rows) {
-      try {
-        await post('/print-jobs', { taskNo: row.taskNo, printerName: (printerName.value.trim() || '浏览器打印'), printType: 'WAREHOUSE_BARCODE_LABEL', printChannel: 'BROWSER' })
-      } catch {}
+      try { await post("/print-jobs", { taskNo:row.taskNo, printerName:(printerName.value.trim() || "浏览器打印"), printType:"WAREHOUSE_BARCODE_LABEL", printChannel:"BROWSER" }) } catch {}
     }
     await load()
-  } finally {
-    batchPrinting.value = false
-  }
+  } catch (e:any) { ElMessage.error(e?.message || "无法调起浏览器打印，请重试") }
+  finally { batchPrinting.value = false }
 }
 async function batchPrint(){
-  await printRows(filteredRows.value, '已调起筛选结果打印')
+  await printRows(oneFactoryRows(batchRows()), '已调起筛选结果打印')
 }
 // 批量为每张标签向后端请求真实 CODE_128 条码 SVG（并发），按 taskNo 建映射；失败的留空由假条码兜底。
 async function renderBarcodes(rows:any[]){
@@ -400,25 +473,72 @@ function isUrgentTask(row:any){
   return mode === 'URGENT' || prio === 'URGENT' || usage === 'SPARE'
 }
 function groupCategory(row:any){
-  const value = groupingMode.value === 'area'
-    ? row?.deliveryArea
-    : previewField(row, 'deliveryAddress', 'sendStationAddress', 'stationName', 'stationCode')
+  const value = groupingMode.value === 'area' ? row?.deliveryArea : stationCategory(row)
   const text = String(value ?? '').trim()
   return text || '未分类'
 }
-const groupedRows = computed(() => {
+function factoryName(row:any){ return String(row?.factory ?? '').trim() || '未维护工厂' }
+function factoryKey(row:any){ return factoryName(row) }
+function groupsFor(rows:any[], factory:string){
   const map = new Map<string, any[]>()
-  for (const row of filteredRows.value) {
-    const key = groupCategory(row)
-    if (!map.has(key)) map.set(key, [])
-    map.get(key)!.push(row)
-  }
-  return Array.from(map.entries())
-    .sort(([a], [b]) => a.localeCompare(b, 'zh-Hans-CN', { numeric:true }))
-    .map(([category, rows]) => ({ category, rows: sortRows(rows, groupSortMap.value[category] || defaultGroupSort.value), printing:false, submitting:false }))
+  for (const row of rows) { const category=groupCategory(row); if(!map.has(category)) map.set(category,[]); map.get(category)!.push(row) }
+  return Array.from(map.entries()).sort(([a],[b])=>a.localeCompare(b,'zh-Hans-CN',{numeric:true})).map(([category,items])=>{ const key=factory+'|'+groupingMode.value+'|'+category; return {key,category,rows:sortRows(items,groupSortMap.value[key] || defaultGroupSort.value),printing:false,submitting:false} })
+}
+const availableFactories = computed(() => {
+  const counts = new Map<string,number>()
+  for (const row of mappingRows.value) counts.set(factoryName(row),0)
+  for (const row of filteredRows.value) { const name=factoryName(row); counts.set(name,(counts.get(name)||0)+1) }
+  return Array.from(counts.entries())
+    .sort(([a],[b])=>a.localeCompare(b,'zh-Hans-CN',{numeric:true}))
+    .map(([key,count])=>({key,label:key,count}))
 })
-function sortRows(list:any[], mode:'pinyin'|'alnum'|'timeAsc'|'timeDesc'){
+const factoryGroups = computed(() => availableFactories.value.map(f => { const items=filteredRows.value.filter(r=>factoryKey(r)===f.key); return {...f,rows:items,groups:groupsFor(items,f.key)} }))
+const selectedFactoryLabel = computed(() => availableFactories.value.find(f=>f.key===selectedFactoryKey.value)?.label || '未选择工厂')
+const factoryRows = computed(() => filteredRows.value.filter(r=>factoryKey(r)===selectedFactoryKey.value))
+const availableAreas = computed(() => {
+  const counts = new Map<string,number>()
+  if (groupingMode.value === 'area') {
+    for (const row of mappingRows.value) {
+      if (factoryKey(row) !== selectedFactoryKey.value) continue
+      const area=String(row?.deliveryArea ?? '').trim()
+      if (area) counts.set(area,0)
+    }
+  }
+  for (const row of factoryRows.value) { const area=groupCategory(row); counts.set(area,(counts.get(area)||0)+1) }
+  return [{key:ALL_AREAS,label:'全部',count:factoryRows.value.length}, ...Array.from(counts.entries()).sort(([a],[b])=>a.localeCompare(b,'zh-Hans-CN',{numeric:true})).map(([key,count])=>({key,label:key,count}))]
+})
+const selectedAreaLabel = computed(() => selectedAreaKey.value===ALL_AREAS ? '全部' : selectedAreaKey.value)
+const currentGroupKey = computed(() => `${selectedFactoryKey.value}|${groupingMode.value}|${selectedAreaKey.value}`)
+const currentRows = computed(() => {
+  const rows = selectedAreaKey.value===ALL_AREAS ? factoryRows.value : factoryRows.value.filter(r=>groupCategory(r)===selectedAreaKey.value)
+  return sortRows(rows,groupSortMap.value[currentGroupKey.value] || defaultGroupSort.value)
+})
+function selectFactory(key:string){ selectedFactoryKey.value=key; selectedAreaKey.value=ALL_AREAS }
+watch(availableFactories, factories=>{
+  if (!factories.some(f=>f.key===selectedFactoryKey.value)) selectedFactoryKey.value=factories[0]?.key || ''
+},{immediate:true})
+watch(availableAreas, areas=>{
+  if (!areas.some(a=>a.key===selectedAreaKey.value)) selectedAreaKey.value=ALL_AREAS
+})
+function isSelected(row:any){ return selectedTaskNos.value.has(String(row?.taskNo || '')) }
+function toggleSelected(row:any, checked:boolean){
+  const no=String(row?.taskNo || ''); if(!no) return
+  const next=new Set(selectedTaskNos.value)
+  if(checked){ const selectedRows=filteredRows.value.filter(r=>next.has(String(r.taskNo))); if(selectedRows.length && factoryKey(selectedRows[0])!==factoryKey(row)){ ElMessage.warning('禁止跨工厂勾选，请先取消当前工厂选择'); return } next.add(no) } else next.delete(no)
+  selectedTaskNos.value=next
+}
+function batchRows(){ const chosen=filteredRows.value.filter(r=>selectedTaskNos.value.has(String(r.taskNo))); return chosen.length ? chosen : filteredRows.value }
+watch(filteredRows, visible=>{ const allowed=new Set(visible.map(r=>String(r.taskNo))); selectedTaskNos.value=new Set([...selectedTaskNos.value].filter(no=>allowed.has(no))) })
+function oneFactoryRows(rows:any[]){ const keys=new Set(rows.map(factoryKey)); if(keys.size>1){ ElMessage.warning('禁止跨工厂打印，请在单个工厂大类内操作'); return [] } return rows }
+function sortRows(list:any[], mode:SortMode){
   return [...list].sort((a,b) => {
+    if (mode === 'warehouseAsc' || mode === 'warehouseDesc') {
+      const addressA=warehouseAddress(a), addressB=warehouseAddress(b)
+      const emptyA=!addressA || addressA==='-', emptyB=!addressB || addressB==='-'
+      if (emptyA !== emptyB) return emptyA ? 1 : -1
+      const diff = naturalAddressCompare(addressA, addressB)
+      if (diff !== 0) return mode === 'warehouseAsc' ? diff : -diff
+    }
     if (mode === 'timeAsc' || mode === 'timeDesc') {
       const diff = taskTime(a) - taskTime(b)
       if (diff !== 0) return mode === 'timeAsc' ? diff : -diff
@@ -433,6 +553,8 @@ function sortRows(list:any[], mode:'pinyin'|'alnum'|'timeAsc'|'timeDesc'){
     return String(a.taskNo || '').localeCompare(String(b.taskNo || ''))
   })
 }
+function warehouseAddress(row:any){ return String(previewField(row, 'warehouseAddress', 'warehouseLocation')) }
+function naturalAddressCompare(a:string,b:string){ const emptyA=!a||a==='-', emptyB=!b||b==='-'; if(emptyA!==emptyB) return emptyA?1:-1; return a.localeCompare(b,undefined,{numeric:true,sensitivity:'base'}) }
 function stationName(row:any){ return String(previewField(row, 'sendStationAddress', 'deliveryAddress', 'stationName', 'stationCode')) }
 function stationCategory(row:any){
   const s = stationName(row).trim()
@@ -463,75 +585,40 @@ function previewField(row:any, ...keys:string[]){
   return '-'
 }
 async function browserPrint(){
-  const r = previewRow.value
-  if (!r) return
-  const w = window.open('', '_blank', 'width=760,height=520')
-  if (!w) { ElMessage.warning('浏览器拦截了打印窗口，请允许本站弹出窗口后重试'); return }
-  w.document.open()
-  w.document.write(singlePrintHtml(r, previewBarcodeSvg.value || fakeBarcodeHtml(r)))
-  w.document.close()
-  triggerChildPrint(w, 200, true)
-  ElMessage.success('已调起浏览器打印，请选择本机斑马打印机，纸张 80×50mm（横向），缩放100%、边距无')
+  const row = previewRow.value
+  if (!row) return
+  await printLabelsInBrowser([row], { [row.taskNo]: previewBarcodeSvg.value })
+  ElMessage.success("已调起浏览器打印：80×50mm，边距0，缩放100%")
   try {
-    await post('/print-jobs', { taskNo: r.taskNo, printerName: (printerName.value.trim() || '浏览器打印'), printType: 'WAREHOUSE_BARCODE_LABEL', printChannel: 'BROWSER' })
+    await post("/print-jobs", { taskNo:row.taskNo, printerName:(printerName.value.trim() || "浏览器打印"), printType:"WAREHOUSE_BARCODE_LABEL", printChannel:"BROWSER" })
     load()
   } catch {}
   previewDialog.value = false
 }
-function singlePrintHtml(row:any, barcodeHtml:string){
-  return `<!doctype html><html><head><meta charset="utf-8"><title>标签_${escHtml(row.taskNo)}</title>${printStyle()}</head><body>${labelHtml(row, barcodeHtml)}</body></html>`
+async function printLabelsInBrowser(rows:any[], barcodes:Record<string,string>){
+  browserPrintRows.value = rows
+  browserPrintBarcodes.value = barcodes
+  await nextTick()
+  window.print()
 }
-function batchPrintHtml(rows:any[], svgMap:Record<string,string>){
-  return `<!doctype html><html><head><meta charset="utf-8"><title>一键打印_${rows.length}张</title>${printStyle()}</head><body>${rows.map(r => labelHtml(r, svgMap[r.taskNo] || fakeBarcodeHtml(r))).join('')}</body></html>`
-}
-// 打印从父窗口触发(脚本合规于 CSP 'self')；子窗口内联脚本会被 CSP script-src 'self' 拦截导致打印不弹。
-function triggerChildPrint(w:Window, delay:number, autoClose:boolean){
-  const run = () => {
-    try {
-      w.focus()
-      if (autoClose) w.onafterprint = () => { try { w.close() } catch {} }
-      w.print()
-    } catch { /* 用户可在弹出的标签窗口内手动 Ctrl+P 打印 */ }
-  }
-  if (w.document.readyState === 'complete') setTimeout(run, delay)
-  else w.onload = () => setTimeout(run, delay)
-}
-function labelHtml(r:any, barcodeHtml:string){
-  const urgent = isUrgentTask(r)
-  return `<div class="lbl"><div class="top"><div class="use ${urgent?'u':''}">${urgent?'紧急配送(备用)':'正常配送(使用)'}</div><div class="bc">${barcodeHtml}</div></div><div class="mid"><div class="cell"><div class="k">物料名称</div><div class="v">${escHtml(previewField(r,'materialCode','materialName'))}</div></div><div class="cell"><div class="k">仓储地址</div><div class="v">${escHtml(previewField(r,'warehouseAddress','warehouseLocation'))}</div></div><div class="cell"><div class="k">货架工位地址</div><div class="v small">${escHtml(previewField(r,'sendStationAddress','deliveryAddress','stationName','stationCode'))}</div></div></div><div class="bottom"><div class="cell"><div class="k">盒子大小</div><div class="v">${escHtml(previewField(r,'boxSize'))}</div></div><div class="cell"><div class="k">数量</div><div class="v">${escHtml(previewField(r,'requestQty'))}</div></div><div class="cell"><div class="k">送货人工号</div><div class="v small">${escHtml(previewField(r,'delivererEmployeeNo'))}</div></div><div class="cell"><div class="k">任务号</div><div class="v tiny">${escHtml(r.taskNo)}</div></div></div></div>`
-}
-function fakeBarcodeHtml(row:any){
-  return `<div class="print-bars"></div><div class="print-code">${escHtml(previewField(row, 'warehouseCode', 'barcodeValue'))}</div>`
-}
-function printStyle(){
-  return `<style>@page{size:80mm 50mm;margin:0}*{box-sizing:border-box;-webkit-print-color-adjust:exact;print-color-adjust:exact}html,body{margin:0;padding:0}.lbl{width:80mm;height:49.5mm;overflow:hidden;border:.4mm solid #000;font-family:'Microsoft YaHei',Arial,sans-serif;display:flex;flex-direction:column;break-inside:avoid;page-break-inside:avoid;break-after:page;page-break-after:always}.lbl:last-child{break-after:auto;page-break-after:auto}.top{height:16mm;flex:none;display:flex;align-items:center;gap:2mm;padding:0 3mm;border-bottom:.4mm solid #000}.use{flex:none;background:#000;color:#fff;border-radius:4mm;padding:1.6mm 3mm;font-size:3.4mm;font-weight:800;white-space:nowrap}.bc{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;overflow:hidden}.bc svg{width:100%;height:13mm}.print-bars{width:100%;height:9mm;background:repeating-linear-gradient(90deg,#000 0 .6mm,#fff .6mm 1mm,#000 1mm 1.25mm,#fff 1.25mm 1.9mm)}.print-code{font-size:2.3mm;font-weight:700;margin-top:.5mm;max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.mid{display:flex;flex:1;border-bottom:.4mm solid #000;min-height:0}.mid>.cell{flex:1;border-right:.4mm solid #000}.mid>.cell:last-child{border-right:0}.bottom{display:flex;flex:1;min-height:0}.bottom>.cell{flex:1;border-right:.4mm solid #000}.bottom>.cell:last-child{border-right:0}.cell{padding:1mm 2mm;display:flex;flex-direction:column;justify-content:center;gap:.6mm;overflow:hidden;min-height:0}.k{font-size:2.3mm;font-weight:600}.v{font-size:4mm;font-weight:800;word-break:break-all;line-height:1.1}.v.small{font-size:3mm}.v.tiny{font-size:2.2mm;letter-spacing:.1mm}</style>`
-}
-function escHtml(v:any){ return String(v ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;') }
-
 const areaDialog = ref(false)
 const areaRows = ref<any[]>([])
 const knownAreas = ref<string[]>([])
-const pickArea = ref('')
+const pickArea = ref("")
 async function openAreaDialog(){
   try {
-    const res:any = await get('/print-jobs/auto-print/area-schedules')
+    const res:any = await get("/print-jobs/auto-print/area-schedules")
     knownAreas.value = res?.areas || []
     let parsed:any[] = []
-    if (res?.json){
-      try { parsed = JSON.parse(res.json) || [] } catch { parsed = [] }
-    }
+    if (res?.json) { try { parsed = JSON.parse(res.json) || [] } catch { parsed = [] } }
     areaRows.value = parsed.map((r:any) => ({
-      area: String(r.area ?? ''),
-      enabled: r.enabled !== false,
-      intervalMinutes: Number(r.intervalMinutes) > 0 ? Number(r.intervalMinutes) : 60,
-      delayMinutes: Number(r.delayMinutes) >= 0 ? Number(r.delayMinutes) : 0,
-      printer: r.printer || '',
-      printType: r.printType || ''
+      area:String(r.area ?? ""), enabled:r.enabled !== false,
+      intervalMinutes:Number(r.intervalMinutes) > 0 ? Number(r.intervalMinutes) : 60,
+      delayMinutes:Number(r.delayMinutes) >= 0 ? Number(r.delayMinutes) : 0,
+      printer:r.printer || "", printType:r.printType || ""
     }))
     areaDialog.value = true
-  } catch (e:any) {
-    ElMessage.error(e?.response?.data?.message || e?.message || '读取分区域配置失败')
-  }
+  } catch (e:any) { ElMessage.error(e?.response?.data?.message || e?.message || "读取分区域配置失败") }
 }
 function addAreaRow(){ areaRows.value.push({ area:'', enabled:true, intervalMinutes:60, delayMinutes:0, printer:'', printType:'' }) }
 function onPickArea(v:string){
@@ -564,45 +651,12 @@ async function saveAreaSchedules(){
     ElMessage.error(e?.response?.data?.message || e?.message || '保存失败')
   }
 }
-onMounted(load)
+onMounted(()=>{
+  load()
+  setupAutoRefresh()
+})
+onUnmounted(()=>{
+  if (refreshTimer) window.clearInterval(refreshTimer)
+})
 </script>
-<style scoped>
-.station-groups{display:flex;flex-direction:column;gap:18px}.station-group{border:1px solid #e2e8f0;border-radius:12px;background:#fff;padding:12px}.station-title{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px;padding:8px 10px;background:#f8fafc;border-radius:8px}.station-title b{font-size:15px;color:#0f172a}.station-title span{margin-left:10px;color:#64748b;font-size:12px}.station-title small{color:#94a3b8}
-.thumb-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:16px;align-items:start}.thumb-card{background:#fff;border:1px solid #e2e8f0;border-radius:14px;padding:12px;box-shadow:0 8px 24px rgba(15,23,42,.06);transition:.18s}.thumb-card:hover{transform:translateY(-2px);border-color:#93c5fd}.thumb-card.urgent{border-color:#fecaca;background:linear-gradient(180deg,#fff,#fff7ed)}.thumb-tags{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}.label-thumb{width:240px;height:150px;margin:0 auto;border:2px solid #111;background:#fff;color:#111;display:flex;flex-direction:column;cursor:pointer;font-family:Arial,'Microsoft YaHei',sans-serif}.thumb-top{height:46px;flex:none;display:flex;align-items:center;gap:5px;padding:0 6px;border-bottom:2px solid #111}.thumb-usage{flex:none;background:#111;color:#fff;border-radius:10px;padding:4px 7px;font-size:10px;font-weight:800;white-space:nowrap}.thumb-barcode{flex:1;padding:2px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;overflow:hidden}.fake-bars{width:100%;height:22px;background:repeating-linear-gradient(90deg,#111 0 2px,#fff 2px 4px,#111 4px 5px,#fff 5px 8px)}.thumb-barcode b{font-size:9px;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.thumb-mid{display:flex;flex:1;border-bottom:2px solid #111;min-height:0}.thumb-mid>.thumb-cell{flex:1;border-right:2px solid #111}.thumb-mid>.thumb-cell:last-child{border-right:0}.thumb-bottom{display:flex;flex:1;min-height:0}.thumb-bottom>.thumb-cell{flex:1;border-right:2px solid #111}.thumb-bottom>.thumb-cell:last-child{border-right:0}.thumb-cell{padding:3px 4px;display:flex;flex-direction:column;justify-content:center;gap:1px;overflow:hidden;min-height:0}.thumb-cell span{font-size:9px;color:#333;font-weight:600}.thumb-cell b{font-size:12px;font-weight:800;line-height:1.05;word-break:break-all;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}.thumb-cell b.mini{font-size:8px;-webkit-line-clamp:3}.thumb-meta{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px}.thumb-meta div{background:#f8fafc;border:1px solid #eef2f7;border-radius:8px;padding:6px}.thumb-meta span{display:block;font-size:11px;color:#64748b}.thumb-meta b{display:block;font-size:13px;color:#0f172a;margin-top:2px;word-break:break-all}.thumb-actions{display:flex;justify-content:center;gap:8px;margin-top:10px}
-.pending-panel{border:1px solid #f3d19e;background:#fffbeb;border-radius:12px;padding:14px;margin:12px 0 16px;box-shadow:0 1px 2px rgba(146,64,14,.06)}
-.records-panel{border:1px solid #e2e8f0;background:#fff;border-radius:12px;padding:14px;margin:12px 0 16px;box-shadow:0 1px 2px rgba(15,23,42,.04)}
-.records-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:10px}
-.records-head h3{margin:0;font-size:16px;color:#1f2937;font-weight:800}
-.records-head p{margin:4px 0 0;color:#64748b;font-size:12.5px}
-.records-actions{display:flex;align-items:center;gap:8px;flex-shrink:0;flex-wrap:wrap}
-.pending-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:10px}
-.pending-head h3,.section-title h3{margin:0;font-size:16px;color:#1f2937;font-weight:800}
-.pending-head p{margin:4px 0 0;color:#92400e;font-size:12.5px}
-.pending-actions{display:flex;align-items:center;gap:8px;flex-shrink:0}
-.section-title{display:flex;align-items:baseline;gap:10px;margin:8px 0 10px}
-.section-title span{font-size:12.5px;color:#64748b}
-.warehouse-label-preview{width:480px;height:300px;border:2px solid #111;background:#fff;color:#111;margin:0 auto;font-family:Arial,'Microsoft YaHei',sans-serif;box-sizing:border-box;display:flex;flex-direction:column}
-.warehouse-label-preview .wl-top{display:flex;align-items:center;gap:10px;height:96px;flex:none;border-bottom:2px solid #111;padding:0 14px}
-.warehouse-label-preview .wl-usage{flex:none;background:#111;color:#fff;border-radius:22px;padding:10px 16px;font-size:18px;font-weight:800;white-space:nowrap}
-.warehouse-label-preview .wl-barcode{flex:1;display:flex;align-items:center;justify-content:center;overflow:hidden}
-.warehouse-label-preview .wl-barcode :deep(svg){width:100%;height:82px;display:block}
-.warehouse-label-preview .wl-mid{display:flex;flex:1;border-bottom:2px solid #111;min-height:0}
-.warehouse-label-preview .wl-mid>.wl-cell{flex:1;border-right:2px solid #111}
-.warehouse-label-preview .wl-mid>.wl-cell:last-child{border-right:0}
-.warehouse-label-preview .wl-bottom{display:flex;flex:1;min-height:0}
-.warehouse-label-preview .wl-bottom>.wl-cell{flex:1;border-right:2px solid #111}
-.warehouse-label-preview .wl-bottom>.wl-cell:last-child{border-right:0}
-.warehouse-label-preview .wl-cell{display:flex;flex-direction:column;justify-content:center;gap:3px;min-height:0;overflow:hidden;padding:6px 10px}
-.warehouse-label-preview .wl-cell span{font-size:12px;font-weight:600;color:#333;line-height:1}
-.warehouse-label-preview .wl-cell b{font-size:22px;font-weight:800;word-break:break-all;line-height:1.1}
-.warehouse-label-preview .wl-cell b.small{font-size:16px}
-.warehouse-label-preview .wl-cell b.tiny{font-size:12px;letter-spacing:.2px}
-.zpl{white-space:pre-wrap;background:#111827;color:#d1d5db;padding:12px;border-radius:8px;margin:0;max-height:280px;overflow:auto}
-.pj-detail{display:flex;flex-direction:column;gap:12px;padding:14px 16px;background:linear-gradient(180deg,#f8fafc 0%,#f1f5f9 100%);border:1px solid #e2e8f0;border-radius:10px}
-.pj-card{background:#fff;border:1px solid #e2e8f0;border-radius:8px;padding:12px 14px;box-shadow:0 1px 2px rgba(15,23,42,.04)}
-.pj-card-title{margin:0 0 10px;font-size:13px;font-weight:700;color:#1e293b;padding-left:8px;border-left:3px solid #2563eb;line-height:1.2}
-.pj-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:8px}
-.pj-field{display:grid;grid-template-columns:100px 1fr;align-items:center;min-height:30px;border:1px solid #eef2f6;border-radius:6px;overflow:hidden;font-size:12.5px}
-.pj-field span{background:#f8fafc;color:#64748b;font-weight:600;padding:6px 8px;height:100%;display:flex;align-items:center;white-space:nowrap;border-right:1px solid #eef2f6}
-.pj-field b{padding:6px 10px;color:#0f172a;font-weight:600;word-break:break-all}
-</style>
+<style scoped src="./FactoryPrint.css"></style>

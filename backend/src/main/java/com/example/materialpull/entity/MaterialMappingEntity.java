@@ -19,6 +19,8 @@ public class MaterialMappingEntity {
     private Long id;
     /** 现场二维码扫出的物料号，对应需求表 B 列。 */
     private String lineMaterialCode;
+    /** 所属工厂。由员工在“料号映射”页手动维护，允许为空。 */
+    private String factory;
     /**
      * 工位/供料点地址。来自工位二维码扫出的工位信息。
      * 用于区分同一物料喂给多个工位时各自的仓库代号；同物料只有一个工位时可留空。
@@ -52,6 +54,7 @@ public class MaterialMappingEntity {
     @PreUpdate public void preUpdate(){ updatedAt = LocalDateTime.now(); normalize(); }
     private void normalize() {
         lineMaterialCode = blankToNull(lineMaterialCode);
+        factory = blankToNull(factory);
         stationCode = blankToNull(stationCode);
         warehouseCode = blankToNull(warehouseCode);
         warehouseMaterialCode = blankToNull(warehouseMaterialCode);

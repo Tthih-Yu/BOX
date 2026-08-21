@@ -16,6 +16,7 @@ public interface ReplenishmentTaskRepository extends JpaRepository<Replenishment
     List<ReplenishmentTaskEntity> findTop1000ByStatusOrderByCreatedAtDesc(TaskStatus status);
     List<ReplenishmentTaskEntity> findTop1000ByCreatedAtBetweenOrderByCreatedAtDesc(LocalDateTime from, LocalDateTime to);
     List<ReplenishmentTaskEntity> findTop1000ByStatusAndCreatedAtBetweenOrderByCreatedAtDesc(TaskStatus status, LocalDateTime from, LocalDateTime to);
+    List<ReplenishmentTaskEntity> findByCreatedAtBetweenOrderByCreatedAtDesc(LocalDateTime from, LocalDateTime to);
     long countByStatus(TaskStatus status);
     List<ReplenishmentTaskEntity> findByStatusIn(List<TaskStatus> statuses);
     List<ReplenishmentTaskEntity> findTop500ByStatusInAndPrintGeneratedFalseOrderByCreatedAtAsc(List<TaskStatus> statuses);

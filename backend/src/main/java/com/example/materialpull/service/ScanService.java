@@ -581,6 +581,7 @@ public class ScanService {
     private ReplenishmentTaskEntity createTaskFromMapping(ScanDtos.ScanRequest req, MaterialMappingEntity mapping, StationMaterialEntity station, String scannedStationCode, boolean spare) {
         ReplenishmentTaskEntity task = new ReplenishmentTaskEntity();
         task.setTaskNo(IdGenerator.idMinute("RP"));
+        task.setFactory(mapping.getFactory());
         task.setSourceLabelCode(mapping.getLineMaterialCode());
         task.setBarcodeValue(mapping.getWarehouseCode());
         task.setWarehouseCode(mapping.getWarehouseCode());
@@ -658,6 +659,7 @@ public class ScanService {
     private ReplenishmentTaskEntity createTaskFromLabel(ScanDtos.ScanRequest req, LabelEntity label) {
         ReplenishmentTaskEntity task = new ReplenishmentTaskEntity();
         task.setTaskNo(IdGenerator.idMinute("RP"));
+        task.setFactory(resolveMappingFactory(label.getWarehouseCode(), label.getMaterialCode()));
         task.setSourceLabelCode(label.getLabelCode());
         task.setBarcodeValue(firstNonBlank(label.getBarcodeValue(), label.getPrimaryScanValue()));
         task.setWarehouseCode(label.getWarehouseCode());
@@ -696,6 +698,7 @@ public class ScanService {
     private ReplenishmentTaskEntity createTask(ScanDtos.ScanRequest req, BoxEntity box) {
         ReplenishmentTaskEntity task = new ReplenishmentTaskEntity();
         task.setTaskNo(IdGenerator.idMinute("RP"));
+        task.setFactory(resolveMappingFactory(box.getWarehouseCode(), box.getMaterialCode()));
         task.setSourceLabelCode(box.getLabelCode());
         task.setBarcodeValue(box.getBarcodeValue());
         task.setWarehouseCode(box.getWarehouseCode());
@@ -728,6 +731,18 @@ public class ScanService {
         task.setDeadlineAt(LocalDateTime.now().plusMinutes(timeoutMinutes));
         task.setLastActionAt(LocalDateTime.now());
         return task;
+    }
+
+    private String resolveMappingFactory(String warehouseCode, String materialCode) {
+        String warehouse = firstNonBlank(warehouseCode);
+        if (warehouse != null) {
+            Optional<MaterialMappingEntity> exact = mappingRepository.findByWarehouseCodeAndEnabledTrue(warehouse);
+            if (exact.isPresent()) return exact.get().getFactory();
+        }
+        String material = firstNonBlank(materialCode);
+        if (material == null) return null;
+        return mappingRepository.findByLineMaterialCodeAndEnabledTrueOrderByMappingOrderAscIdAsc(material).stream()
+                .findFirst().map(MaterialMappingEntity::getFactory).orElse(null);
     }
 
     private ScanDtos.ScanResult duplicateResult(BoxEntity box, ReplenishmentTaskEntity task, String message) {

@@ -102,4 +102,19 @@ public class SimpleBomController {
                 "total", result.getTotalElements(),
                 "rows", result.getContent()));
     }
+
+    /** 清空当前有效批次的全部 BOM 行。 */
+    @DeleteMapping("/rows")
+    @RequireRoles({UserRole.PLANNER})
+    public ApiResponse<Map<String, Integer>> deleteAllRows() {
+        int deleted = service.deleteAllRows();
+        return ApiResponse.ok(Map.of("deleted", deleted));
+    }
+
+    /** 批量删除：上传 CSV/Excel，精确匹配物料8D+组件8D后删除。 */
+    @PostMapping("/delete-by-file")
+    @RequireRoles({UserRole.PLANNER})
+    public ApiResponse<Map<String, Integer>> deleteByFile(@RequestParam MultipartFile file) {
+        return ApiResponse.ok(service.deleteByFile(file));
+    }
 }
