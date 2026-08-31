@@ -36,6 +36,14 @@ public class UserEntity {
 
     private String phone;
     private Boolean enabled = true;
+    
+    // DataScope 新增字段（对应 Migration V0.9.3）
+    @Column(length = 32)
+    private String factory;  // 所属工厂，NULL 表示全局管理员
+    
+    @Version
+    private Long version = 0L;  // 乐观锁版本号
+    
     private LocalDateTime lastLoginAt;
     private LocalDateTime passwordUpdatedAt;
     private LocalDateTime createdAt;
