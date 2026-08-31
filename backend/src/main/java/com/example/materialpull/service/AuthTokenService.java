@@ -23,6 +23,7 @@ public class AuthTokenService {
     private final SecurityProperties securityProperties;
     private final UserRepository userRepository;
     private final SessionStore sessionStore;
+    private final com.example.materialpull.repository.UserDeliveryAreaRepository userDeliveryAreaRepository;
     private final SecureRandom secureRandom = new SecureRandom();
 
     private Duration sessionTtl() {
@@ -37,9 +38,21 @@ public class AuthTokenService {
         String token = randomToken(48);
         LocalDateTime issuedAt = LocalDateTime.now();
         LocalDateTime expiresAt = issuedAt.plusMinutes(Math.max(5, securityProperties.getSessionTtlMinutes()));
-        SessionUser session = new SessionUser(token, user.getId(), user.getUsername(), user.getRealName(), user.getRole(), issuedAt, user.getPasswordUpdatedAt(), expiresAt);
+        
+        // 加载用户范围（DataScope）
+        String factory = user.getFactory();
+        java.util.List<String> deliveryAreas = loadUserDeliveryAreas(user.getId());
+        
+        SessionUser session = new SessionUser(token, user.getId(), user.getUsername(), user.getRealName(), user.getRole(), issuedAt, user.getPasswordUpdatedAt(), expiresAt, factory, deliveryAreas);
         sessionStore.saveSession(session, sessionTtl());
         return session;
+    }
+    
+    private java.util.List<String> loadUserDeliveryAreas(Long userId) {
+        return userDeliveryAreaRepository.findByUserId(userId)
+                .stream()
+                .map(com.example.materialpull.entity.UserDeliveryAreaEntity::getDeliveryArea)
+                .collect(java.util.stream.Collectors.toList());
     }
 
     public Optional<SessionUser> validate(String token) {
@@ -57,7 +70,14 @@ public class AuthTokenService {
             revoke(s.token());
             return Optional.empty();
         }
-        SessionUser refreshed = new SessionUser(s.token(), user.getId(), user.getUsername(), user.getRealName(), user.getRole(), s.issuedAt(), user.getPasswordUpdatedAt(), s.expiresAt());
+        
+        // 检查 factory 是否变化（DataScope）
+        if (!Objects.equals(user.getFactory(), s.factory())) {
+            revoke(s.token());
+            return Optional.empty();
+        }
+        
+        SessionUser refreshed = new SessionUser(s.token(), user.getId(), user.getUsername(), user.getRealName(), user.getRole(), s.issuedAt(), user.getPasswordUpdatedAt(), s.expiresAt(), s.factory(), s.deliveryAreas());
         sessionStore.saveSession(refreshed, sessionTtl());
         return Optional.of(refreshed);
     }
@@ -74,7 +94,7 @@ public class AuthTokenService {
     public WsTicket issueWebsocketTicket(SessionUser session) {
         String ticket = randomToken(32);
         LocalDateTime expiresAt = LocalDateTime.now().plusSeconds(Math.max(30, securityProperties.getWebsocketTicketTtlSeconds()));
-        SessionUser ticketSession = new SessionUser(ticket, session.userId(), session.username(), session.realName(), session.role(), session.issuedAt(), session.passwordUpdatedAt(), expiresAt);
+        SessionUser ticketSession = new SessionUser(ticket, session.userId(), session.username(), session.realName(), session.role(), session.issuedAt(), session.passwordUpdatedAt(), expiresAt, session.factory(), session.deliveryAreas());
         sessionStore.saveTicket(ticketSession, ticketTtl());
         return new WsTicket(ticket, expiresAt);
     }
@@ -100,7 +120,7 @@ public class AuthTokenService {
         return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
     }
 
-    public record SessionUser(String token, Long userId, String username, String realName, UserRole role, LocalDateTime issuedAt, LocalDateTime passwordUpdatedAt, LocalDateTime expiresAt) {
+    public record SessionUser(String token, Long userId, String username, String realName, UserRole role, LocalDateTime issuedAt, LocalDateTime passwordUpdatedAt, LocalDateTime expiresAt, String factory, java.util.List<String> deliveryAreas) {
         @JsonCreator
         public SessionUser(
                 @JsonProperty("token") String token,
@@ -110,7 +130,9 @@ public class AuthTokenService {
                 @JsonProperty("role") UserRole role,
                 @JsonProperty("issuedAt") LocalDateTime issuedAt,
                 @JsonProperty("passwordUpdatedAt") LocalDateTime passwordUpdatedAt,
-                @JsonProperty("expiresAt") LocalDateTime expiresAt) {
+                @JsonProperty("expiresAt") LocalDateTime expiresAt,
+                @JsonProperty("factory") String factory,
+                @JsonProperty("deliveryAreas") java.util.List<String> deliveryAreas) {
             this.token = token;
             this.userId = userId;
             this.username = username;
@@ -119,6 +141,8 @@ public class AuthTokenService {
             this.issuedAt = issuedAt;
             this.passwordUpdatedAt = passwordUpdatedAt;
             this.expiresAt = expiresAt;
+            this.factory = factory;
+            this.deliveryAreas = deliveryAreas;
         }
     }
     public record WsTicket(String ticket, LocalDateTime expiresAt) {}

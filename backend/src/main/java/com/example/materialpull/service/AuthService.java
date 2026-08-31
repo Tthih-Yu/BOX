@@ -70,7 +70,16 @@ public class AuthService {
 
     public AuthDtos.WsTicketResult createWebsocketTicket() {
         AuthTokenService.SessionUser session = new AuthTokenService.SessionUser(
-                "", RequestContext.getUserId(), RequestContext.getUsername(), RequestContext.getRealName(), RequestContext.getRole(), LocalDateTime.now(), null, LocalDateTime.now().plusMinutes(1)
+                "", 
+                RequestContext.getUserId(), 
+                RequestContext.getUsername(), 
+                RequestContext.getRealName(), 
+                RequestContext.getRole(), 
+                LocalDateTime.now(), 
+                null, 
+                LocalDateTime.now().plusMinutes(1),
+                RequestContext.getFactory(),
+                RequestContext.getDeliveryAreas()
         );
         if (session.username() == null || session.role() == null) throw new BusinessException(ErrorCode.UNAUTHORIZED, "未登录或登录已失效");
         AuthTokenService.WsTicket ticket = tokenService.issueWebsocketTicket(session);
