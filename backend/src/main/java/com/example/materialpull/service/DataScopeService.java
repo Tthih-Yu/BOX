@@ -2,7 +2,8 @@ package com.example.materialpull.service;
 
 import com.example.materialpull.common.BusinessException;
 import com.example.materialpull.common.ErrorCode;
-import com.example.materialpull.security.SessionUser;
+import com.example.materialpull.common.RequestContext;
+import com.example.materialpull.enums.UserRole;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
@@ -18,20 +19,32 @@ public class DataScopeService {
 
     /**
      * 从当前请求上下文获取用户信息
-     * TODO: 需要从 RequestContext 或 SecurityContext 获取
      */
-    private SessionUser getCurrentUser() {
-        // 临时实现，后续需要从认证链获取
-        throw new UnsupportedOperationException("需要实现认证链后才能获取当前用户");
+    private com.example.materialpull.security.SessionUser getCurrentUser() {
+        // 从 RequestContext 构造 SessionUser
+        Long userId = RequestContext.getUserId();
+        if (userId == null) {
+            throw new BusinessException(ErrorCode.UNAUTHORIZED, "未登录");
+        }
+        
+        com.example.materialpull.security.SessionUser user = new com.example.materialpull.security.SessionUser();
+        user.setId(userId);
+        user.setUsername(RequestContext.getUsername());
+        user.setRealName(RequestContext.getRealName());
+        user.setRole(RequestContext.getRole());
+        user.setFactory(RequestContext.getFactory());
+        user.setDeliveryAreas(RequestContext.getDeliveryAreas());
+        user.setEnabled(true);
+        return user;
     }
 
     /**
      * 判断当前用户是否为全局管理员
      */
     public boolean isGlobalAdmin() {
-        SessionUser user = getCurrentUser();
+        com.example.materialpull.security.SessionUser user = getCurrentUser();
         // ADMIN 角色且 factory 为 NULL 表示全局管理员
-        return "ADMIN".equals(user.getRole()) && user.getFactory() == null;
+        return UserRole.ADMIN == user.getRole() && user.getFactory() == null;
     }
 
     /**
@@ -42,7 +55,7 @@ public class DataScopeService {
         if (isGlobalAdmin()) {
             return null;
         }
-        SessionUser user = getCurrentUser();
+        com.example.materialpull.security.SessionUser user = getCurrentUser();
         if (user.getFactory() == null || user.getFactory().isBlank()) {
             throw new BusinessException(ErrorCode.FORBIDDEN, "账号未配置工厂范围");
         }
@@ -57,7 +70,7 @@ public class DataScopeService {
         if (isGlobalAdmin()) {
             return List.of();
         }
-        SessionUser user = getCurrentUser();
+        com.example.materialpull.security.SessionUser user = getCurrentUser();
         if (user.getDeliveryAreas() == null || user.getDeliveryAreas().isEmpty()) {
             throw new BusinessException(ErrorCode.FORBIDDEN, "账号未配置配送区域");
         }
@@ -138,7 +151,7 @@ public class DataScopeService {
     public void requireAccessFactoryArea(String factory, String deliveryArea) {
         if (!canAccessFactoryArea(factory, deliveryArea)) {
             log.warn("越权访问被拒绝 [FACTORY_AREA]: factory={}, deliveryArea={}, user={}",
-                    factory, deliveryArea, getCurrentUser().getUsername());
+                    factory, deliveryArea, RequestContext.getCurrentUsername());
             throw new BusinessException(ErrorCode.FORBIDDEN, "无权访问该数据");
         }
     }
@@ -152,7 +165,7 @@ public class DataScopeService {
     public void requireAccessFactoryOnly(String factory) {
         if (!canAccessFactoryOnly(factory)) {
             log.warn("越权访问被拒绝 [FACTORY_ONLY]: factory={}, user={}",
-                    factory, getCurrentUser().getUsername());
+                    factory, RequestContext.getCurrentUsername());
             throw new BusinessException(ErrorCode.FORBIDDEN, "无权访问该数据");
         }
     }

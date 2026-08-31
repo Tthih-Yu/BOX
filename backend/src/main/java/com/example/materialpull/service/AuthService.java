@@ -5,12 +5,16 @@ import com.example.materialpull.common.ErrorCode;
 import com.example.materialpull.common.RequestContext;
 import com.example.materialpull.dto.AuthDtos;
 import com.example.materialpull.entity.UserEntity;
+import com.example.materialpull.entity.UserDeliveryAreaEntity;
 import com.example.materialpull.repository.UserRepository;
+import com.example.materialpull.repository.UserDeliveryAreaRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.List;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -18,6 +22,7 @@ public class AuthService {
     private final UserRepository userRepository;
     private final AuthTokenService tokenService;
     private final PasswordService passwordService;
+    private final UserDeliveryAreaRepository userDeliveryAreaRepository;
 
     @Transactional
     public AuthDtos.LoginResult login(AuthDtos.LoginRequest req) {
@@ -40,6 +45,13 @@ public class AuthService {
         user.setLastLoginAt(LocalDateTime.now());
         userRepository.save(user);
 
+        // 加载用户的 DataScope 范围信息
+        String factory = user.getFactory();
+        List<String> deliveryAreas = userDeliveryAreaRepository.findByUserId(user.getId())
+                .stream()
+                .map(UserDeliveryAreaEntity::getDeliveryArea)
+                .collect(Collectors.toList());
+
         AuthTokenService.SessionUser session = tokenService.issue(user);
         AuthDtos.LoginResult result = new AuthDtos.LoginResult();
         result.token = session.token();
@@ -48,6 +60,11 @@ public class AuthService {
         result.role = user.getRole();
         result.roleLabel = user.getRole() == null ? null : user.getRole().label;
         result.expiresAt = session.expiresAt();
+        
+        // DataScope 范围字段
+        result.factory = factory;
+        result.deliveryAreas = deliveryAreas.isEmpty() ? null : deliveryAreas;
+        
         return result;
     }
 
