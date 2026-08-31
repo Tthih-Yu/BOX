@@ -62,6 +62,16 @@ public class TaskService {
         return taskRepository.findTop1000ByOrderByCreatedAtDesc();
     }
 
+    public Map<String, Object> printable() {
+        List<ReplenishmentTaskEntity> result = taskRepository
+                .findByStatusInAndPrintGeneratedFalseAndPrintJobNoIsNullOrderByCreatedAtAsc(
+                        List.of(TaskStatus.CREATED, TaskStatus.ACCEPTED, TaskStatus.PICKING, TaskStatus.PICKED));
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("items", result);
+        body.put("total", result.size());
+        return body;
+    }
+
     @Transactional
     public ReplenishmentTaskEntity action(String taskNo, String action, TaskActionRequest req) {
         if (req == null) req = new TaskActionRequest();

@@ -120,7 +120,7 @@ public class LabelService {
         u.deliveryMode = req.deliveryMode;
         u.standardQty = req.standardQty;
         u.unit = req.unit;
-        u.delivererEmployeeNo = req.delivererEmployeeNo;
+        u.areaCode = req.deliveryArea;
         u.lineCode = req.lineCode;
         u.stationCode = req.stationCode;
         u.stationName = req.stationName;
@@ -175,9 +175,9 @@ public class LabelService {
         LabelEntity l = new LabelEntity();
         l.setLabelCode(labelCode); l.setLabelType(req.labelType); l.setCodeCarrierType(req.codeCarrierType);
         l.setPrimaryScanValue(primary); l.setSecondaryScanValue(req.secondaryScanValue); l.setBarcodeValue(barcode); l.setWarehouseCode(warehouseCode);
-        l.setWarehouseAddress(req.warehouseAddress); l.setSendStationAddress(req.sendStationAddress); l.setBoxSize(req.boxSize); l.setDelivererEmployeeNo(req.delivererEmployeeNo);
+        l.setWarehouseAddress(req.warehouseAddress); l.setSendStationAddress(req.sendStationAddress); l.setBoxSize(req.boxSize);
         l.setKanbanCardNo(kanban); l.setRawPayload(req.rawPayload);
-        l.setAreaCode(req.areaCode); l.setBoxCode(bindBox ? boxCode : null); l.setPairCode(pairCode); l.setBoxSide(boxSide);
+        l.setAreaCode(firstNotBlank(req.deliveryArea, req.areaCode)); l.setBoxCode(bindBox ? boxCode : null); l.setPairCode(pairCode); l.setBoxSide(boxSide);
         l.setLabelUsageType(firstNotBlank(req.labelUsageType, "B".equalsIgnoreCase(boxSide) ? "SPARE" : "USE"));
         l.setDeliveryMode(firstNotBlank(req.deliveryMode, "SPARE".equalsIgnoreCase(l.getLabelUsageType()) ? "URGENT" : "NORMAL"));
         l.setContainerType(container);
@@ -195,7 +195,7 @@ public class LabelService {
         if (bindBox) {
             BoxEntity b = new BoxEntity();
             b.setBoxCode(boxCode); b.setPairCode(pairCode); b.setBoxSide(boxSide); b.setLabelCode(labelCode); b.setBarcodeValue(firstNotBlank(barcode, primary));
-            b.setWarehouseCode(warehouseCode); b.setWarehouseAddress(req.warehouseAddress); b.setSendStationAddress(req.sendStationAddress); b.setBoxSize(req.boxSize); b.setDelivererEmployeeNo(req.delivererEmployeeNo); b.setKanbanCardNo(kanban);
+            b.setWarehouseCode(warehouseCode); b.setWarehouseAddress(req.warehouseAddress); b.setSendStationAddress(req.sendStationAddress); b.setBoxSize(req.boxSize); b.setKanbanCardNo(kanban);
             b.setAreaCode(req.areaCode); b.setLineCode(l.getLineCode()); b.setStationCode(stationCode); b.setStationName(l.getStationName());
             b.setProjectCode(firstNotBlank(req.projectCode, req.businessCode)); b.setRouteName(firstNotBlank(req.routeName, req.routing)); b.setDeliveryAddress(firstNotBlank(req.deliveryAddress, req.sendStationAddress, req.pointOfUseAddress)); b.setWarehouseLocation(firstNotBlank(req.warehouseLocation, req.warehouseAddress, req.supermarketAddress));
             b.setMaterialCode(req.materialCode); b.setMaterialName(req.materialName); b.setWarehouseMaterialCode(l.getWarehouseMaterialCode());
@@ -253,8 +253,8 @@ public class LabelService {
         LabelDtos.PreviewResponse r = new LabelDtos.PreviewResponse();
         r.labelCode = l.getLabelCode(); r.labelType = l.getLabelType(); r.codeCarrierType = l.getCodeCarrierType(); r.templateCode = l.getTemplateCode();
         r.primaryScanValue = l.getPrimaryScanValue(); r.secondaryScanValue = l.getSecondaryScanValue(); r.barcodeValue = l.getBarcodeValue();
-        r.warehouseCode = l.getWarehouseCode(); r.warehouseAddress = l.getWarehouseAddress(); r.sendStationAddress = l.getSendStationAddress(); r.boxSize = l.getBoxSize(); r.delivererEmployeeNo = l.getDelivererEmployeeNo();
-        r.kanbanCardNo = l.getKanbanCardNo(); r.areaCode = l.getAreaCode();
+        r.warehouseCode = l.getWarehouseCode(); r.warehouseAddress = l.getWarehouseAddress(); r.sendStationAddress = l.getSendStationAddress(); r.boxSize = l.getBoxSize();
+        r.kanbanCardNo = l.getKanbanCardNo(); r.areaCode = l.getAreaCode(); r.deliveryArea = l.getAreaCode();
         r.projectCode = l.getProjectCode(); r.routeName = l.getRouteName(); r.deliveryAddress = l.getDeliveryAddress();
         r.businessCode = l.getBusinessCode(); r.gridCode = l.getGridCode(); r.pointOfUseAddress = l.getPointOfUseAddress(); r.routing = l.getRouting(); r.cardNo = l.getCardNo(); r.cardTotal = l.getCardTotal();
         r.supermarketBusiness = l.getSupermarketBusiness(); r.supermarketGrid = l.getSupermarketGrid(); r.supermarketAddress = l.getSupermarketAddress();
@@ -265,7 +265,7 @@ public class LabelService {
     }
 
     private String labelPrintPayload(LabelEntity l, String printerName, boolean reprint) {
-        return "{\"printJobNo\":\"" + esc(IdGenerator.id("LBLPRN")) + "\",\"printType\":\"LABEL_TEMPLATE\",\"printerName\":\"" + esc(printerName) + "\",\"reprint\":\"" + reprint + "\",\"labelCode\":\"" + esc(l.getLabelCode()) + "\",\"labelType\":\"" + esc(l.getLabelType()) + "\",\"primaryScanValue\":\"" + esc(l.getPrimaryScanValue()) + "\",\"warehouseCode\":\"" + esc(l.getWarehouseCode()) + "\",\"materialCode\":\"" + esc(l.getMaterialCode()) + "\",\"materialName\":\"" + esc(l.getMaterialName()) + "\",\"materialImageUrl\":\"" + esc(l.getMaterialImageUrl()) + "\",\"qty\":\"" + l.getStandardQty() + "\",\"warehouseAddress\":\"" + esc(l.getWarehouseAddress()) + "\",\"sendStationAddress\":\"" + esc(firstNotBlank(l.getSendStationAddress(), l.getDeliveryAddress(), l.getStationCode())) + "\",\"templateCode\":\"" + esc(l.getTemplateCode()) + "\"}";
+        return "{\"printJobNo\":\"" + esc(IdGenerator.id("LBLPRN")) + "\",\"printType\":\"LABEL_TEMPLATE\",\"printerName\":\"" + esc(printerName) + "\",\"reprint\":\"" + reprint + "\",\"labelCode\":\"" + esc(l.getLabelCode()) + "\",\"labelType\":\"" + esc(l.getLabelType()) + "\",\"primaryScanValue\":\"" + esc(l.getPrimaryScanValue()) + "\",\"warehouseCode\":\"" + esc(l.getWarehouseCode()) + "\",\"materialCode\":\"" + esc(l.getMaterialCode()) + "\",\"materialName\":\"" + esc(l.getMaterialName()) + "\",\"materialImageUrl\":\"" + esc(l.getMaterialImageUrl()) + "\",\"qty\":\"" + l.getStandardQty() + "\",\"warehouseAddress\":\"" + esc(l.getWarehouseAddress()) + "\",\"sendStationAddress\":\"" + esc(firstNotBlank(l.getSendStationAddress(), l.getDeliveryAddress(), l.getStationCode())) + "\",\"deliveryArea\":\"" + esc(l.getAreaCode()) + "\",\"templateCode\":\"" + esc(l.getTemplateCode()) + "\"}";
     }
 
     private String esc(String v) { return v == null ? "" : v.replace("\\", "\\\\").replace("\"", "\\\"").replace("\r", "\\r").replace("\n", "\\n"); }

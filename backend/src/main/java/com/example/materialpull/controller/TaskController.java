@@ -11,6 +11,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/tasks")
@@ -22,6 +23,11 @@ public class TaskController {
     @GetMapping
     public ApiResponse<List<ReplenishmentTaskEntity>> list(@RequestParam(required = false) String status,
                                                             @RequestParam(required = false) String date) { return ApiResponse.ok(service.list(status, date)); }
+
+    @GetMapping("/printable")
+    public ApiResponse<Map<String, Object>> printable() {
+        return ApiResponse.ok(service.printable());
+    }
 
     @DeleteMapping("/{taskNo}")
     @RequireRoles({UserRole.ADMIN, UserRole.WAREHOUSE})

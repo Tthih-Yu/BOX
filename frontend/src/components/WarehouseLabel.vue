@@ -12,7 +12,7 @@
     <div class="wl-bottom">
       <div class="wl-cell"><span>盒子大小</span><b>{{ field('boxSize') }}</b></div>
       <div class="wl-cell"><span>数量</span><b>{{ field('requestQty') }}</b></div>
-      <div class="wl-cell"><span>送货人工号</span><b class="small">{{ field('delivererEmployeeNo') }}</b></div>
+      <div class="wl-cell"><span>配送区域</span><b class="small">{{ field('deliveryArea') }}</b></div>
       <div class="wl-cell"><span>任务号</span><b class="tiny">{{ field('taskNo') }}</b></div>
     </div>
   </div>

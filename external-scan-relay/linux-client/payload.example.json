@@ -1,0 +1,8 @@
+{
+  "source": "material-pull",
+  "type": "status",
+  "time": "2026-08-20T16:30:00+08:00",
+  "data": {
+    "message": "example payload"
+  }
+}

@@ -1,0 +1,23 @@
+[Unit]
+Description=Aliyun API Relay backend
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=aliyun-api-relay
+Group=aliyun-api-relay
+UMask=0027
+EnvironmentFile=/etc/aliyun-api-relay/api.env
+ExecStart=/usr/bin/python3 /opt/aliyun-api-relay/server.py
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/aliyun-api-relay
+
+[Install]
+WantedBy=multi-user.target
+

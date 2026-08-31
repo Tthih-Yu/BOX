@@ -1,0 +1,243 @@
+<view class="page">
+  <block wx:if="{{showSettings}}">
+    <view class="main-header settings-header">
+      <view class="header-copy">
+        <text class="app-title">设备设置</text>
+      </view>
+      <button class="top-action-button" hover-class="button-hover" bindtap="onToggleSettings" disabled="{{isSending}}">完成</button>
+    </view>
+
+    <scroll-view
+      class="settings-scroll"
+      scroll-y
+      scroll-with-animation
+      scroll-into-view="{{scrollIntoView}}"
+    >
+      <view class="form-card">
+        <view class="card-title">网络与服务</view>
+
+        <view class="segmented">
+          <button
+            class="segment-button {{networkMode == 'INTERNAL' ? 'segment-active' : ''}}"
+            hover-class="button-hover"
+            data-mode="INTERNAL"
+            bindtap="onNetworkModeChange"
+            disabled="{{isSending}}"
+          >内网</button>
+          <button
+            class="segment-button {{networkMode == 'EXTERNAL' ? 'segment-active' : ''}}"
+            hover-class="button-hover"
+            data-mode="EXTERNAL"
+            bindtap="onNetworkModeChange"
+            disabled="{{isSending}}"
+          >外网</button>
+        </view>
+
+        <block wx:if="{{networkMode == 'INTERNAL'}}">
+          <view class="field" id="field-serverUrl">
+            <text class="field-label">地址</text>
+            <input
+              class="field-input"
+              data-field="serverUrl"
+              value="{{serverUrl}}"
+              bindinput="onFieldInput"
+              bindfocus="onInputFocus"
+              bindblur="onInputBlur"
+              adjust-position="{{true}}"
+              cursor-spacing="24"
+              placeholder="例如：http://10.243.129.131/api"
+              disabled="{{isSending}}"
+            />
+          </view>
+        </block>
+        <block wx:else>
+          <view class="field" id="field-externalUrl">
+            <text class="field-label">地址</text>
+            <input
+              class="field-input"
+              data-field="externalUrl"
+              value="{{externalUrl}}"
+              bindinput="onFieldInput"
+              bindfocus="onInputFocus"
+              bindblur="onInputBlur"
+              adjust-position="{{true}}"
+              cursor-spacing="24"
+              placeholder="例如：https://tthih.top"
+              disabled="{{isSending}}"
+            />
+          </view>
+          <view class="field" id="field-enrollmentKey">
+            <text class="field-label">{{isRelayRegistered ? '设备登记码（已登记，留空即可）' : '设备登记码（首次必填）'}}</text>
+            <input
+              class="field-input"
+              data-field="enrollmentKey"
+              value="{{enrollmentKey}}"
+              bindinput="onFieldInput"
+              bindfocus="onInputFocus"
+              bindblur="onInputBlur"
+              adjust-position="{{true}}"
+              cursor-spacing="24"
+              disabled="{{isSending}}"
+            />
+          </view>
+          <view class="device-status {{isRelayRegistered ? 'status-ok' : 'status-error'}}">
+            {{isRelayRegistered ? '设备状态：已登记' : '设备状态：未登记'}}
+          </view>
+        </block>
+      </view>
+
+      <view class="form-card">
+        <view class="card-title">设备信息</view>
+        <view class="field" id="field-submitPath">
+          <text class="field-label">{{networkMode == 'EXTERNAL' ? '业务动作路径（默认 /scan/empty）' : '提交路径'}}</text>
+          <input
+            class="field-input"
+            data-field="submitPath"
+            value="{{submitPath}}"
+            bindinput="onFieldInput"
+            bindfocus="onInputFocus"
+            bindblur="onInputBlur"
+            adjust-position="{{true}}"
+            cursor-spacing="24"
+            placeholder="/scan/empty"
+            disabled="{{isSending}}"
+          />
+        </view>
+
+        <view class="field" id="field-deviceNo">
+          <text class="field-label">设备编号</text>
+          <input
+            class="field-input"
+            data-field="deviceNo"
+            value="{{deviceNo}}"
+            bindinput="onFieldInput"
+            bindfocus="onInputFocus"
+            bindblur="onInputBlur"
+            adjust-position="{{true}}"
+            cursor-spacing="24"
+            disabled="{{isSending}}"
+          />
+        </view>
+
+        <view class="field" id="field-employeeNo">
+          <text class="field-label">员工工号（仅记录，不参与校验）</text>
+          <input
+            class="field-input"
+            data-field="employeeNo"
+            value="{{employeeNo}}"
+            bindinput="onFieldInput"
+            bindfocus="onInputFocus"
+            bindblur="onInputBlur"
+            adjust-position="{{true}}"
+            cursor-spacing="24"
+            disabled="{{isSending}}"
+          />
+        </view>
+
+        <view class="device-model">设备型号：{{deviceModel}}</view>
+      </view>
+
+      <view class="form-card result-card {{operation.isError ? 'result-error' : 'result-ok'}}">
+        <view class="result-title">{{operation.title}}</view>
+        <view class="result-detail">{{operation.detail}}</view>
+      </view>
+
+      <view class="settings-actions">
+        <button class="primary-button" hover-class="button-hover" bindtap="onSaveSettings" disabled="{{isSending}}">保存</button>
+        <button class="outline-button" hover-class="button-hover" bindtap="onHealthCheck" disabled="{{isSending}}">测试连接</button>
+      </view>
+
+     
+
+      <view class="keyboard-spacer" style="height: {{keyboardHeight}}px;"></view>
+    </scroll-view>
+  </block>
+
+  <block wx:else>
+    <view class="page-shell">
+      <view class="header">
+        <view class="title-row">
+          <text class="title">扫码申请</text>
+          <button class="setting-btn" hover-class="button-hover" bindtap="onToggleSettings" disabled="{{isSending}}">设置</button>
+        </view>
+
+        <view class="status-card {{operation.isError ? 'status-card-error' : ''}}">
+          <view class="status-title">{{operation.title}}</view>
+          <view class="status-desc">{{operation.detail}}</view>
+        </view>
+
+      </view>
+
+      <view class="content">
+        <block wx:if="{{pendingPreview}}">
+          <scroll-view
+            class="content-scroll"
+            scroll-y
+            scroll-with-animation
+            scroll-into-view="{{scrollIntoView}}"
+          >
+            <view class="card preview-card">
+              <view class="card-title">确认申请</view>
+              <view class="material-code">物料编号  {{pendingPreview.materialCode ? pendingPreview.materialCode : pendingPreview.scanCode}}</view>
+              <view class="default-line">默认 {{pendingPreview.defaultQty}} {{pendingPreview.defaultUnit}}</view>
+
+              <view class="input-row">
+                <view class="field field-flex-135" id="field-requestQtyText">
+                  <text class="field-label">数量</text>
+                  <input
+                    class="field-input"
+                    type="digit"
+                    data-field="requestQtyText"
+                    value="{{requestQtyText}}"
+                    bindinput="onFieldInput"
+                    bindfocus="onInputFocus"
+                    bindblur="onInputBlur"
+                    adjust-position="{{true}}"
+                    cursor-spacing="24"
+                    disabled="{{isSending}}"
+                  />
+                </view>
+                <view class="field field-flex-65" id="field-requestUnit">
+                  <text class="field-label">单位</text>
+                  <input
+                    class="field-input"
+                    data-field="requestUnit"
+                    value="{{requestUnit}}"
+                    bindinput="onFieldInput"
+                    bindfocus="onInputFocus"
+                    bindblur="onInputBlur"
+                    adjust-position="{{true}}"
+                    cursor-spacing="24"
+                    disabled="{{isSending}}"
+                  />
+                </view>
+              </view>
+
+              <view class="actions">
+                <button class="outline-button" hover-class="button-hover" bindtap="onCancelPreview" disabled="{{isSending}}">取消</button>
+                <button class="primary-button" hover-class="button-hover" bindtap="onSubmitPreview" disabled="{{isSending}}">
+                  {{isSending ? '发送中' : '发送申请'}}
+                </button>
+              </view>
+            </view>
+
+            <view class="keyboard-spacer" style="height: {{keyboardHeight}}px;"></view>
+          </scroll-view>
+        </block>
+
+        <block wx:else>
+          <view class="watermark-wrap">
+            <image class="watermark" src="/back.png" mode="widthFix"></image>
+          </view>
+        </block>
+      </view>
+
+      <view class="footer">
+        <button class="scan-btn" hover-class="button-hover" bindtap="onScanClick" disabled="{{isSending}}">
+          <text class="scan-btn-icon">扫</text>
+          <text>{{isSending ? '正在查询' : (pendingPreview ? '重新扫码' : '开始扫码')}}</text>
+        </button>
+      </view>
+    </view>
+  </block>
+</view>

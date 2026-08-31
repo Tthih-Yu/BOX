@@ -1,0 +1,9 @@
+{
+  "ListenPrefix": "http://+:80/aliyun-relay/",
+  "AllowedSourceIp": "10.243.129.131",
+  "RelayToken": "replace-with-linux-to-winserver-token-at-least-32-characters",
+  "ApiBaseUrl": "https://tthih.top",
+  "ApiToken": "replace-with-winserver-to-aliyun-token-at-least-32-characters",
+  "MaxBodyBytes": 65536,
+  "TimeoutSeconds": 20
+}

@@ -70,7 +70,7 @@ public class BasicDataController {
 
     @DeleteMapping("/mappings/{id}")
     @RequireRoles({UserRole.SUB_ADMIN, UserRole.PLANNER})
-    public ApiResponse<Void> delMapping(@PathVariable Long id) { service.disableMapping(id); return ApiResponse.ok(null); }
+    public ApiResponse<Void> delMapping(@PathVariable Long id) { service.deleteMapping(id); return ApiResponse.ok(null); }
 
     @GetMapping("/mappings/export")
     @RequireRoles({UserRole.SUB_ADMIN, UserRole.PLANNER, UserRole.WAREHOUSE, UserRole.VIEWER})

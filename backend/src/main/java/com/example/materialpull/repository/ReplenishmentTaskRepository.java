@@ -20,6 +20,7 @@ public interface ReplenishmentTaskRepository extends JpaRepository<Replenishment
     long countByStatus(TaskStatus status);
     List<ReplenishmentTaskEntity> findByStatusIn(List<TaskStatus> statuses);
     List<ReplenishmentTaskEntity> findTop500ByStatusInAndPrintGeneratedFalseOrderByCreatedAtAsc(List<TaskStatus> statuses);
+    List<ReplenishmentTaskEntity> findByStatusInAndPrintGeneratedFalseAndPrintJobNoIsNullOrderByCreatedAtAsc(Collection<TaskStatus> statuses);
     List<ReplenishmentTaskEntity> findByStatusInAndUpdatedAtBefore(List<TaskStatus> statuses, LocalDateTime before);
     List<ReplenishmentTaskEntity> findBySourceLabelCodeAndStatusIn(String sourceLabelCode, List<TaskStatus> statuses);
     List<ReplenishmentTaskEntity> findByMaterialCodeAndStatusIn(String materialCode, List<TaskStatus> statuses);
