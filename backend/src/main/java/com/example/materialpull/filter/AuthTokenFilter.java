@@ -79,7 +79,7 @@ public class AuthTokenFilter extends OncePerRequestFilter {
             return;
         }
         AuthTokenService.SessionUser user = session.get();
-        bindRequestUser(request, user.userId(), user.username(), user.realName(), user.role());
+        bindRequestUser(request, user.userId(), user.username(), user.realName(), user.role(), user.factory(), user.deliveryAreas());
         filterChain.doFilter(request, response);
     }
 
@@ -202,16 +202,22 @@ public class AuthTokenFilter extends OncePerRequestFilter {
         var session = tokenService.consumeWebsocketTicket(ticket);
         if (session.isEmpty()) return false;
         AuthTokenService.SessionUser user = session.get();
-        bindRequestUser(request, user.userId(), user.username(), user.realName(), user.role());
+        bindRequestUser(request, user.userId(), user.username(), user.realName(), user.role(), user.factory(), user.deliveryAreas());
         return true;
     }
 
-    private void bindRequestUser(HttpServletRequest request, Long userId, String username, String realName, UserRole role) {
-        RequestContext.setLoginUser(userId, username, realName, role);
+    private void bindRequestUser(HttpServletRequest request, Long userId, String username, String realName, UserRole role, String factory, java.util.List<String> deliveryAreas) {
+        // DataScope: 使用新的 6 参数方法设置范围
+        RequestContext.setLoginUser(userId, username, realName, role, factory, deliveryAreas);
         request.setAttribute("loginUserId", userId);
         request.setAttribute("loginUser", username);
         request.setAttribute("loginRealName", realName);
         request.setAttribute("loginRole", role == null ? null : role.name());
+    }
+    
+    private void bindRequestUser(HttpServletRequest request, Long userId, String username, String realName, UserRole role) {
+        // 向后兼容：设备和外部系统调用暂时不设置范围
+        bindRequestUser(request, userId, username, realName, role, null, null);
     }
 
     private String readBearerToken(HttpServletRequest request) {
