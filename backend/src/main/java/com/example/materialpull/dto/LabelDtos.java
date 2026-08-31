@@ -49,7 +49,7 @@ public class LabelDtos {
 
 
     /**
-     * V0.6 负责人确认后的真实工厂标签：条形码=仓库代码，标签内容为物料名称、仓库地址、发送工位地址、盒子大小、数量、送料人工号。
+     * V0.6 负责人确认后的真实工厂标签：条形码=仓库代码，标签内容为物料名称、仓库地址、发送工位地址、盒子大小、数量、配送区域。
      * 该标签不默认绑定 A/B 双盒；扫码后可直接生成普通补货任务，避免把错误模板写死到主流程。
      */
     public static class FactoryPullLabelRequest {
@@ -65,7 +65,7 @@ public class LabelDtos {
         public String boxSize;
         public BigDecimal standardQty;
         public String unit;
-        public String delivererEmployeeNo;
+        public String deliveryArea;
         public String lineCode;
         public String stationCode;
         public String stationName;
@@ -95,10 +95,11 @@ public class LabelDtos {
         public String warehouseAddress;
         public String sendStationAddress;
         public String boxSize;
-        public String delivererEmployeeNo;
         public String kanbanCardNo;
         public String rawPayload;
         public String areaCode;
+        /** 工厂标签使用的配送区域；当前持久化复用 areaCode 字段。 */
+        public String deliveryArea;
         public String projectCode;
         public String routeName;
         public String deliveryAddress;
@@ -167,9 +168,9 @@ public class LabelDtos {
         public String warehouseAddress;
         public String sendStationAddress;
         public String boxSize;
-        public String delivererEmployeeNo;
         public String kanbanCardNo;
         public String areaCode;
+        public String deliveryArea;
         public String projectCode;
         public String routeName;
         public String deliveryAddress;

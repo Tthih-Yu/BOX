@@ -125,12 +125,13 @@ public class BasicDataService {
     }
 
     @Transactional
-    public void disableMapping(Long id) {
+    public void deleteMapping(Long id) {
         if (id == null) throw new BusinessException(ErrorCode.PARAM_ERROR, "料号映射ID不能为空");
         MaterialMappingEntity e = mappingRepository.findById(id).orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "料号映射不存在：" + id));
-        e.setEnabled(false);
-        e.setRemark(firstNonBlank(e.getRemark(), "已停用，历史数据保留追溯"));
-        mappingRepository.save(e);
+        // 补货任务已经保存映射快照，不依赖映射外键。这里必须真正删除，
+        // 否则 enabled=false 的记录仍会出现在基础数据列表中，用户会误以为删除失败。
+        mappingRepository.delete(e);
+        mappingRepository.flush();
     }
 
     @Transactional
@@ -145,7 +146,7 @@ public class BasicDataService {
     /**
      * 批量删除料号映射。
      * scope=ALL 清空全部；scope=AREA 按配送区域删除；否则按 ids 删除。
-     * 与单条“删除”的停用语义不同，这里是物理删除，供“批量删除/覆盖上传”使用。
+     * 与单条删除保持一致，均为物理删除；历史补货任务保留自己的映射快照。
      */
     @Transactional
     public Map<String, Object> deleteMappings(String scope, String deliveryArea, List<Long> ids) {

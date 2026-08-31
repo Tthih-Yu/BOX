@@ -16,6 +16,10 @@ public class AuthDtos {
         public UserRole role;
         public String roleLabel;
         public LocalDateTime expiresAt;
+        
+        // DataScope 范围字段（新增）
+        public String factory;  // 所属工厂，null 表示全局管理员
+        public java.util.List<String> deliveryAreas;  // 允许访问的配送区域列表
     }
 
     public static class WsTicketResult {

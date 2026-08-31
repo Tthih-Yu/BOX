@@ -22,8 +22,14 @@ public class PrintJobController {
     private final com.example.materialpull.service.TaskService taskService;
 
     @GetMapping
-    public ApiResponse<List<PrintJobEntity>> list(@RequestParam(required = false) String status) {
-        return ApiResponse.ok(service.list(status));
+    public ApiResponse<?> list(@RequestParam(required = false) String status,
+                               @RequestParam(required = false) String channel,
+                               @RequestParam(required = false) Integer page,
+                               @RequestParam(required = false) Integer size) {
+        if (page == null && size == null && (channel == null || channel.isBlank())) {
+            return ApiResponse.ok(service.list(status));
+        }
+        return ApiResponse.ok(service.page(status, channel, page == null ? 0 : page, size == null ? 20 : size));
     }
 
     @PostMapping("/auto-print/run")

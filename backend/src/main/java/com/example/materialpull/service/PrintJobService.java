@@ -7,6 +7,9 @@ import com.example.materialpull.enums.*;
 import com.example.materialpull.repository.*;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
@@ -40,6 +43,39 @@ public class PrintJobService {
             throw new BusinessException(ErrorCode.PARAM_ERROR, "未知打印状态：" + status);
         }
         return printJobRepository.findTop1000ByStatusOrderByCreatedAtDesc(s);
+    }
+
+    public Map<String, Object> page(String status, String channel, int page, int size) {
+        int safePage = Math.max(0, page);
+        int safeSize = Math.max(1, Math.min(size, 20));
+        String safeChannel = channel == null ? "" : channel.trim().toUpperCase(Locale.ROOT);
+        PrintJobStatus safeStatus = parseStatus(status);
+        PageRequest pageable = PageRequest.of(safePage, safeSize, Sort.by(Sort.Direction.DESC, "createdAt"));
+        Page<PrintJobEntity> result;
+        if (safeStatus != null && !safeChannel.isBlank()) {
+            result = printJobRepository.findByStatusAndPrintChannelIgnoreCaseOrderByCreatedAtDesc(safeStatus, safeChannel, pageable);
+        } else if (safeStatus != null) {
+            result = printJobRepository.findByStatusOrderByCreatedAtDesc(safeStatus, pageable);
+        } else if (!safeChannel.isBlank()) {
+            result = printJobRepository.findByPrintChannelIgnoreCaseOrderByCreatedAtDesc(safeChannel, pageable);
+        } else {
+            result = printJobRepository.findAll(pageable);
+        }
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("items", result.getContent());
+        body.put("total", result.getTotalElements());
+        body.put("page", safePage);
+        body.put("size", safeSize);
+        return body;
+    }
+
+    private PrintJobStatus parseStatus(String status) {
+        if (status == null || status.isBlank()) return null;
+        try {
+            return PrintJobStatus.valueOf(status.trim().toUpperCase(Locale.ROOT));
+        } catch (IllegalArgumentException e) {
+            throw new BusinessException(ErrorCode.PARAM_ERROR, "未知打印状态：" + status);
+        }
     }
 
     @Transactional
@@ -236,7 +272,7 @@ public class PrintJobService {
 
     private String payload(PrintJobEntity job, ReplenishmentTaskEntity t) {
         boolean urgent = t.getPriority() == PriorityLevel.URGENT || "URGENT".equalsIgnoreCase(firstNonBlank(t.getDeliveryMode(), "")) || "SPARE".equalsIgnoreCase(firstNonBlank(t.getLabelUsageType(), ""));
-        return "{\"printJobNo\":\"" + esc(job.getPrintJobNo()) + "\",\"factory\":\"" + esc(displayFactory(job.getFactory())) + "\",\"taskNo\":\"" + esc(t.getTaskNo()) + "\",\"labelCode\":\"" + esc(t.getSourceLabelCode()) + "\",\"printType\":\"" + esc(job.getPrintType()) + "\",\"printerName\":\"" + esc(job.getPrinterName()) + "\",\"barcode\":\"" + esc(t.getWarehouseCode()) + "\",\"warehouseCode\":\"" + esc(t.getWarehouseCode()) + "\",\"materialCode\":\"" + esc(t.getMaterialCode()) + "\",\"materialName\":\"" + esc(firstNonBlank(t.getMaterialName(), t.getMaterialCode(), "")) + "\",\"materialImageUrl\":\"" + esc(t.getMaterialImageUrl()) + "\",\"boxSize\":\"" + esc(t.getBoxSize()) + "\",\"qty\":\"" + t.getRequestQty() + "\",\"from\":\"" + esc(firstNonBlank(t.getWarehouseAddress(), t.getWarehouseLocation(), "")) + "\",\"to\":\"" + esc(firstNonBlank(t.getSendStationAddress(), t.getDeliveryAddress(), t.getStationCode())) + "\",\"delivererEmployeeNo\":\"" + esc(t.getDelivererEmployeeNo()) + "\",\"deliveryMode\":\"" + (urgent ? "URGENT" : "NORMAL") + "\",\"usageType\":\"" + esc(firstNonBlank(t.getLabelUsageType(), urgent ? "SPARE" : "USE")) + "\",\"zpl\":\"" + esc(zpl(t)) + "\"}";
+        return "{\"printJobNo\":\"" + esc(job.getPrintJobNo()) + "\",\"factory\":\"" + esc(displayFactory(job.getFactory())) + "\",\"taskNo\":\"" + esc(t.getTaskNo()) + "\",\"labelCode\":\"" + esc(t.getSourceLabelCode()) + "\",\"printType\":\"" + esc(job.getPrintType()) + "\",\"printerName\":\"" + esc(job.getPrinterName()) + "\",\"barcode\":\"" + esc(t.getWarehouseCode()) + "\",\"warehouseCode\":\"" + esc(t.getWarehouseCode()) + "\",\"materialCode\":\"" + esc(t.getMaterialCode()) + "\",\"materialName\":\"" + esc(firstNonBlank(t.getMaterialName(), t.getMaterialCode(), "")) + "\",\"materialImageUrl\":\"" + esc(t.getMaterialImageUrl()) + "\",\"boxSize\":\"" + esc(t.getBoxSize()) + "\",\"qty\":\"" + t.getRequestQty() + "\",\"from\":\"" + esc(firstNonBlank(t.getWarehouseAddress(), t.getWarehouseLocation(), "")) + "\",\"to\":\"" + esc(firstNonBlank(t.getSendStationAddress(), t.getDeliveryAddress(), t.getStationCode())) + "\",\"deliveryArea\":\"" + esc(t.getDeliveryArea()) + "\",\"deliveryMode\":\"" + (urgent ? "URGENT" : "NORMAL") + "\",\"usageType\":\"" + esc(firstNonBlank(t.getLabelUsageType(), urgent ? "SPARE" : "USE")) + "\",\"zpl\":\"" + esc(zpl(t)) + "\"}";
     }
 
     private String zpl(ReplenishmentTaskEntity t) {
@@ -246,12 +282,12 @@ public class PrintJobService {
         String material = firstNonBlank(t.getMaterialCode(), t.getMaterialName(), "");
         String boxSize = firstNonBlank(t.getBoxSize(), "");
         String qty = t.getRequestQty() == null ? "" : t.getRequestQty().stripTrailingZeros().toPlainString();
-        String worker = firstNonBlank(t.getDelivererEmployeeNo(), "");
+        String deliveryArea = firstNonBlank(t.getDeliveryArea(), "");
         boolean urgent = t.getPriority() == PriorityLevel.URGENT || "URGENT".equalsIgnoreCase(firstNonBlank(t.getDeliveryMode(), "")) || "SPARE".equalsIgnoreCase(firstNonBlank(t.getLabelUsageType(), ""));
 
         // 实际画布点数 = 物理尺寸(mm) × dpi/25.4。所有坐标按参考画布(640×400)等比缩放，
         // 从而适配任意 dpi(203/300...)与标签尺寸，避免 300dpi 打印机上排版被放大溢出。
-        // 横版 80×50mm@203dpi ≈ 640×400 点：上=用途条+条码，中=三栏(物料/仓库/工位)，下=四栏(盒子/数量/工号/任务号)。
+        // 横版 80×50mm@203dpi ≈ 640×400 点：上=用途条+条码，中=三栏(物料/仓库/工位)，下=四栏(盒子/数量/配送区域/任务号)。
         LabelGeometry g = labelGeometry();
         double sx = g.widthDots / REF_W;   // 横向缩放比
         double sy = g.heightDots / REF_H;  // 纵向缩放比
@@ -281,14 +317,14 @@ public class PrintJobService {
         appendCol(zpl, 228, 152, "仓库地址", from, 188, 40, 2, sx, sy);
         appendCol(zpl, 436, 152, "发送工位地址", to, 188, 36, 2, sx, sy);
 
-        // ===== 底部带(y 262..392)：四栏 盒子大小/数量/送料人工号/任务号 =====
+        // ===== 底部带(y 262..392)：四栏 盒子大小/数量/配送区域/任务号 =====
         box(zpl, 8, 262, 624, 0, 2, sx, sy);       // 上分隔线
         box(zpl, 164, 262, 0, 130, 2, sx, sy);     // 竖分隔
         box(zpl, 320, 262, 0, 130, 2, sx, sy);
         box(zpl, 476, 262, 0, 130, 2, sx, sy);
         appendCol(zpl, 20, 276, "盒子大小", boxSize, 140, 44, 1, sx, sy);
         appendCol(zpl, 176, 276, "数量", qty, 140, 44, 1, sx, sy);
-        appendCol(zpl, 332, 276, "送料人工号", worker, 140, 32, 2, sx, sy);
+        appendCol(zpl, 332, 276, "配送区域", deliveryArea, 140, 32, 2, sx, sy);
         appendCol(zpl, 488, 276, "任务号", firstNonBlank(t.getTaskNo(), ""), 140, 20, 3, sx, sy);
 
         zpl.append("^XZ");

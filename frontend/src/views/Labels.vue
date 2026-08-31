@@ -5,7 +5,7 @@
         <div class="card">
           <div class="toolbar">
             <div>
-              <el-input v-model="keyword" placeholder="仓库代号/物料号/仓库地址/工位地址/送料人工号" clearable style="width:440px" />
+              <el-input v-model="keyword" placeholder="仓库代号/物料号/仓库地址/工位地址/配送区域" clearable style="width:440px" />
               <el-button @click="load" style="margin-left:8px">刷新</el-button>
               <el-input v-model="printerName" placeholder="打印机名称" style="width:220px;margin-left:8px" />
             </div>
@@ -47,7 +47,7 @@
             <el-table-column prop="sendStationAddress" label="发送工位地址" width="180" />
             <el-table-column prop="boxSize" label="盒子大小" width="100" />
             <el-table-column prop="standardQty" label="数量" width="90" />
-            <el-table-column prop="delivererEmployeeNo" label="送料人工号" width="120" />
+            <el-table-column prop="deliveryArea" label="配送区域" width="120" />
             <el-table-column prop="templateCode" label="模板" width="130" />
             <el-table-column prop="status" label="状态" width="110"><template #default="{row}"><el-tag :type="tagType(row.status)">{{row.status}}</el-tag></template></el-table-column>
             <el-table-column fixed="right" label="操作" width="220">
@@ -109,7 +109,7 @@
           <el-col :span="8"><el-form-item label="盒子大小"><el-input v-model="factoryForm.boxSize" /></el-form-item></el-col>
           <el-col :span="8"><el-form-item label="数量"><el-input-number v-model="factoryForm.standardQty" :min="1" style="width:100%" /></el-form-item></el-col>
           <el-col :span="8"><el-form-item label="单位"><el-input v-model="factoryForm.unit" /></el-form-item></el-col>
-          <el-col :span="8"><el-form-item label="送料人工号"><el-input v-model="factoryForm.delivererEmployeeNo" /></el-form-item></el-col>
+          <el-col :span="8"><el-form-item label="配送区域"><el-input v-model="factoryForm.deliveryArea" /></el-form-item></el-col>
           <el-col :span="8"><el-form-item label="产线"><el-input v-model="factoryForm.lineCode" /></el-form-item></el-col>
           <el-col :span="8"><el-form-item label="工位编码"><el-input v-model="factoryForm.stationCode" /></el-form-item></el-col>
           <el-col :span="8"><el-form-item label="打印日期"><el-date-picker v-model="factoryForm.printDate" value-format="YYYY-MM-DD" style="width:100%" /></el-form-item></el-col>
@@ -164,7 +164,7 @@ const labelUsageTypeOptions = ref<MetaOption[]>([])
 const deliveryModeOptions = ref<MetaOption[]>([])
 const codeForm = reactive({ text:'', format:'CODE_128', width:360, height:140, includeText:true })
 const codeResult = ref<any>(null)
-const factoryForm = reactive({ warehouseCode:'', barcodeValue:'', primaryScanValue:'', materialCode:'', materialName:'', materialImageUrl:'', warehouseAddress:'', sendStationAddress:'', boxSize:'', standardQty:1, unit:'', delivererEmployeeNo:'', lineCode:'', stationCode:'', stationName:'', printDate:'', bindBox:false, boxSide:'', labelUsageType:'', deliveryMode:'' })
+const factoryForm = reactive({ warehouseCode:'', barcodeValue:'', primaryScanValue:'', materialCode:'', materialName:'', materialImageUrl:'', warehouseAddress:'', sendStationAddress:'', boxSize:'', standardQty:1, unit:'', deliveryArea:'', lineCode:'', stationCode:'', stationName:'', printDate:'', bindBox:false, boxSide:'', labelUsageType:'', deliveryMode:'' })
 const universalForm = reactive({ labelType:'WAREHOUSE_BARCODE_LABEL', codeCarrierType:'BARCODE_1D', templateCode:'WAREHOUSE_BARCODE', primaryScanValue:'', rawPayload:'', warehouseCode:'', warehouseAddress:'', sendStationAddress:'', materialCode:'', materialName:'', materialImageUrl:'', standardQty:1, bindBox:false, labelUsageType:'USE', deliveryMode:'NORMAL' })
 const visibleRows = computed(() => rows.value.filter(r => r.codeCarrierType !== 'QR_CODE' && r.labelType !== 'ANDROID_PULL_LABEL'))
 const filtered = computed(() => keyword.value ? visibleRows.value.filter(r => JSON.stringify(r).toLowerCase().includes(keyword.value.toLowerCase())) : visibleRows.value)
@@ -218,12 +218,12 @@ const FactoryLabelPreview = defineComponent({ props:{ row:{type:Object, required
   h('div',{class:'factory-row'},[h('span','仓库地址'),h('b',props.row.warehouseAddress || props.row.warehouseLocation || '-')]),
   h('div',{class:'factory-row'},[h('span','发送工位地址'),h('b',props.row.sendStationAddress || props.row.deliveryAddress || '-')]),
   h('div',{class:'factory-two'},[h('div',[h('span','盒子大小'),h('b',props.row.boxSize || props.row.containerType || '-')]), h('div',[h('span','数量'),h('b',props.row.standardQty || '-')])]),
-  h('div',{class:'factory-row'},[h('span','送料人工号'),h('b',props.row.delivererEmployeeNo || '-')]),
+  h('div',{class:'factory-row'},[h('span','配送区域'),h('b',props.row.deliveryArea || props.row.areaCode || '-')]),
   h('div',{class:'factory-foot'},[h('span','模板：FACTORY_PULL'), h('span',fmtDate(props.row.printDate))])
 ])}})
 const GenericPreview = defineComponent({ props:{ row:{type:Object, required:true}}, setup(props:any){ return () => h('div',{class:'generic-card'},[
   h('h3',props.row.labelType || 'GENERIC_LABEL'),
-  ...['primaryScanValue','warehouseCode','barcodeValue','materialCode','materialName','materialImageUrl','labelUsageType','deliveryMode','warehouseAddress','sendStationAddress','boxSize','standardQty','delivererEmployeeNo','deliveryAddress','warehouseLocation','status'].map(k=>h('div',{class:'generic-row'},[h('span',k),h('b',props.row[k] || '-')]))
+  ...['primaryScanValue','warehouseCode','barcodeValue','materialCode','materialName','materialImageUrl','labelUsageType','deliveryMode','warehouseAddress','sendStationAddress','boxSize','standardQty','deliveryArea','deliveryAddress','warehouseLocation','status'].map(k=>h('div',{class:'generic-row'},[h('span',k),h('b',props.row[k] || '-')]))
 ])}})
 onMounted(async()=>{ const meta = await loadBusinessMeta(); boxSideOptions.value = meta.boxSides; labelUsageTypeOptions.value = meta.labelUsageTypes; deliveryModeOptions.value = meta.deliveryModes; load() })
 </script>

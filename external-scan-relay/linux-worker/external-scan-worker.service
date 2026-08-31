@@ -1,0 +1,22 @@
+[Unit]
+Description=Material Pull External Scan Worker
+After=network-online.target material-pull-backend.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=material-pull-worker
+Group=material-pull-worker
+UMask=0027
+WorkingDirectory=/opt/apps/material-pull/external-scan-relay/linux-worker
+EnvironmentFile=/etc/material-pull-external-scan/worker.env
+ExecStart=/usr/bin/python3 /opt/apps/material-pull/external-scan-relay/linux-worker/worker.py
+Restart=always
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target

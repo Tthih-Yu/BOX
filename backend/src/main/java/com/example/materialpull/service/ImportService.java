@@ -63,7 +63,7 @@ public class ImportService {
             "materials", new String[]{"materialCode", "warehouseMaterialCode", "materialName", "spec", "unit", "category"},
             "mappings", new String[]{"mappingOrder", "lineMaterialCode", "warehouseCode", "boxSize", "quantity", "deliveryType", "warehouseLocation", "deliveryAddress", "remark", "deliveryArea", "warehouseMaterialCode", "singleUnitUsage", "factory"},
             "stationMaterials", new String[]{"lineCode", "stationCode", "stationName", "materialCode", "materialName", "warehouseMaterialCode", "standardBoxQty", "dailyUsage", "triggerQty"},
-            "factoryLabels", new String[]{"warehouseCode", "barcodeValue", "primaryScanValue", "materialCode", "materialName", "warehouseMaterialCode", "warehouseAddress", "sendStationAddress", "boxSize", "standardQty", "unit", "delivererEmployeeNo", "lineCode", "stationCode", "stationName", "printDate", "bindBox", "boxSide", "containerType", "remark"},
+            "factoryLabels", new String[]{"warehouseCode", "barcodeValue", "primaryScanValue", "materialCode", "materialName", "warehouseMaterialCode", "warehouseAddress", "sendStationAddress", "boxSize", "standardQty", "unit", "deliveryArea", "lineCode", "stationCode", "stationName", "printDate", "bindBox", "boxSide", "containerType", "remark"},
             "siteLabels", new String[]{"areaCode", "kanbanCardNo", "barcodeValue", "projectCode", "routeName", "deliveryAddress", "materialCode", "materialName", "warehouseMaterialCode", "standardQty", "boxSide", "warehouseLocation", "specText", "unit", "printDate", "lineCode", "stationCode", "stationName", "bindBox"},
             "universalLabels", new String[]{"labelType", "codeCarrierType", "templateCode", "primaryScanValue", "secondaryScanValue", "barcodeValue", "kanbanCardNo", "projectCode", "routeName", "deliveryAddress", "businessCode", "gridCode", "pointOfUseAddress", "routing", "cardNo", "cardTotal", "supermarketBusiness", "supermarketGrid", "supermarketAddress", "materialCode", "materialName", "warehouseMaterialCode", "standardQty", "boxSide", "containerType", "warehouseLocation", "specText", "unit", "printDate", "lineCode", "stationCode", "stationName", "bindBox", "rawPayload", "fieldSnapshotJson", "remark"}
     );
@@ -484,7 +484,7 @@ public class ImportService {
         x.warehouseCode = r.str("warehouseCode"); x.barcodeValue = r.str("barcodeValue"); x.primaryScanValue = r.str("primaryScanValue");
         x.materialCode = r.str("materialCode"); x.materialName = r.str("materialName"); x.warehouseMaterialCode = r.str("warehouseMaterialCode");
         x.warehouseAddress = r.str("warehouseAddress"); x.sendStationAddress = r.str("sendStationAddress"); x.boxSize = r.str("boxSize");
-        x.standardQty = r.num("standardQty", "数量"); x.unit = r.str("unit"); x.delivererEmployeeNo = r.str("delivererEmployeeNo");
+        x.standardQty = r.num("standardQty", "数量"); x.unit = r.str("unit"); x.deliveryArea = r.str("deliveryArea");
         x.lineCode = r.str("lineCode"); x.stationCode = r.str("stationCode"); x.stationName = r.str("stationName");
         x.printDate = r.date("printDate");
         x.bindBox = "true".equalsIgnoreCase(r.str("bindBox")); x.boxSide = r.str("boxSide"); x.containerType = r.str("containerType");

@@ -1,0 +1,40 @@
+<view class="scanner-page">
+  <camera
+    class="scanner-camera"
+    mode="scanCode"
+    device-position="back"
+    flash="off"
+    resolution="high"
+    scan-area="{{scanArea}}"
+    style="width: {{windowWidth}}px; height: {{windowHeight}}px;"
+    bindscancode="onScanCode"
+    binderror="onCameraError"
+  ></camera>
+
+  <cover-view class="mask" style="top: 0; height: {{maskTopHeight}}px;"></cover-view>
+  <cover-view class="mask" style="top: {{frameTop}}px; left: 0; width: {{maskLeftWidth}}px; height: {{frameHeight}}px;"></cover-view>
+  <cover-view class="mask" style="top: {{frameTop}}px; left: {{maskRightLeft}}px; width: {{maskRightWidth}}px; height: {{frameHeight}}px;"></cover-view>
+  <cover-view class="mask" style="top: {{maskBottomTop}}px; height: {{maskBottomHeight}}px;"></cover-view>
+
+  <cover-view class="scan-frame" style="left: {{frameLeft}}px; top: {{frameTop}}px; width: {{frameWidth}}px; height: {{frameHeight}}px;">
+    <cover-view class="corner corner-tl"></cover-view>
+    <cover-view class="corner corner-tr"></cover-view>
+    <cover-view class="corner corner-bl"></cover-view>
+    <cover-view class="corner corner-br"></cover-view>
+  </cover-view>
+
+  <cover-view class="scanner-top">
+    <cover-view class="scanner-title">扫码申请</cover-view>
+    <cover-view class="scanner-close" bindtap="onClose">取消</cover-view>
+  </cover-view>
+
+  <cover-view class="scanner-bottom">
+    <cover-view class="scanner-hint">将条码或二维码放入框内，系统会自动识别</cover-view>
+  </cover-view>
+
+  <cover-view wx:if="{{cameraError}}" class="camera-error-mask">
+    <cover-view class="camera-error-title">无法使用摄像头</cover-view>
+    <cover-view class="camera-error-detail">{{errorMessage}}</cover-view>
+    <cover-view class="camera-error-button" bindtap="openSetting">去授权</cover-view>
+  </cover-view>
+</view>

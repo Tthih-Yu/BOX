@@ -123,6 +123,7 @@ async function remove(row:any){
   await ElMessageBox.confirm('确认删除该数据？')
   await del(`${props.deleteUrl}/${row.id}`)
   ElMessage.success('已删除')
+  if (props.serverPagination && rows.value.length === 1 && page.value > 1) page.value--
   load()
 }
 onMounted(load)

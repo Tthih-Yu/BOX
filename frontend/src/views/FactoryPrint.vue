@@ -35,7 +35,7 @@
           <h3>待打印补货任务</h3><p>按工厂与配送分类处理尚未生成打印作业的任务</p>
         </div>
         <div class="pending-actions">
-          <el-tag type="warning" effect="plain">{{ filteredRows.length }} / {{ rawRows.length }} 条待生成</el-tag>
+          <el-tag type="warning" effect="plain">共 {{ filteredRows.length }} 条待生成</el-tag>
           <el-tag type="info" effect="plain">{{ factoryGroups.reduce((n,g)=>n+g.groups.length,0) }} 个分类</el-tag>
           <el-button size="small" type="success" plain :disabled="!filteredRows.length || !printerName.trim()" :loading="batchSubmitting" @click="batchSubmitPrintJobs">提交到代理队列</el-button>
           <el-button size="small" @click="loadPending">刷新待打印</el-button>
@@ -90,7 +90,7 @@
             <div class="thumb-bottom">
               <div class="thumb-cell"><span>盒子</span><b>{{ previewField(row, 'boxSize') }}</b></div>
               <div class="thumb-cell"><span>数量</span><b>{{ previewField(row, 'requestQty') }}</b></div>
-              <div class="thumb-cell"><span>工号</span><b>{{ previewField(row, 'delivererEmployeeNo') }}</b></div>
+              <div class="thumb-cell"><span>配送区域</span><b>{{ previewField(row, 'deliveryArea') }}</b></div>
               <div class="thumb-cell"><span>任务</span><b class="mini">{{ row.taskNo }}</b></div>
             </div>
           </div>
@@ -110,12 +110,12 @@
           <h3>打印记录</h3><p>查看浏览器与本地代理的历史打印状态</p>
         </div>
         <div class="records-actions">
-          <el-select v-model="recordChannel" size="small" style="width:150px" @change="loadRecords">
+          <el-select v-model="recordChannel" size="small" style="width:150px" @change="onRecordFilterChange">
             <el-option label="全部方式" value="" />
             <el-option label="浏览器打印" value="BROWSER" />
             <el-option label="代理自动打印" value="AGENT" />
           </el-select>
-          <el-select v-model="recordStatus" size="small" style="width:150px" @change="loadRecords">
+          <el-select v-model="recordStatus" size="small" style="width:150px" @change="onRecordFilterChange">
             <el-option label="全部状态" value="" />
             <el-option label="待代理领取" value="RENDERED" />
             <el-option label="已下发代理" value="SENT" />
@@ -155,6 +155,15 @@
           </template>
         </el-table-column>
       </el-table>
+      <el-pagination
+        v-if="recordTotal > PAGE_SIZE"
+        v-model:current-page="recordPage"
+        :page-size="PAGE_SIZE"
+        :total="recordTotal"
+        layout="total, prev, pager, next"
+        style="margin-top:16px;justify-content:flex-end"
+        @current-change="loadRecords"
+      />
     </section>
 
     <el-dialog v-model="previewDialog" title="待打印标签预览" width="560px">
@@ -222,7 +231,7 @@ import { ElMessage } from 'element-plus'
 import { runtimePrinterName, saveRuntimePrinterName } from '../config'
 import WarehouseLabel from '../components/WarehouseLabel.vue'
 const rawRows = ref<any[]>([])
-const mappingRows = ref<any[]>([])
+const PAGE_SIZE = 20
 const printerName = ref(runtimePrinterName())
 const previewDialog = ref(false)
 const previewRow = ref<any>(null)
@@ -241,10 +250,11 @@ const groupSortMap = ref<Record<string, SortMode>>({})
 const batchPrinting = ref(false)
 const batchSubmitting = ref(false)
 const records = ref<any[]>([])
+const recordPage = ref(1)
+const recordTotal = ref(0)
 const recordChannel = ref('')
 const recordStatus = ref('')
 const reprintingJobNo = ref('')
-const printableStatuses = ['CREATED','ACCEPTED','PICKING','PICKED']
 const AUTO_REFRESH_KEY = 'factoryPrintAutoRefreshSec'
 const autoRefreshSec = ref<number>(Number(localStorage.getItem(AUTO_REFRESH_KEY) || 30))
 const lastRefreshText = ref('')
@@ -262,7 +272,7 @@ async function load(){
 }
 function setupAutoRefresh(){
   if (refreshTimer){ window.clearInterval(refreshTimer); refreshTimer = undefined }
-  if (autoRefreshSec.value > 0) refreshTimer = window.setInterval(load, autoRefreshSec.value * 1000)
+  if (autoRefreshSec.value > 0 && !previewDialog.value) refreshTimer = window.setInterval(load, autoRefreshSec.value * 1000)
 }
 function onAutoRefreshChange(){
   localStorage.setItem(AUTO_REFRESH_KEY, String(autoRefreshSec.value))
@@ -270,13 +280,21 @@ function onAutoRefreshChange(){
 }
 async function loadRecords(){
   try {
-    const list:any[] = await get('/print-jobs', recordStatus.value ? { status: recordStatus.value } : undefined)
-    let rows = Array.isArray(list) ? list : []
-    if (recordChannel.value) rows = rows.filter(r => String(r.printChannel || '').toUpperCase() === recordChannel.value)
-    records.value = rows
+    const result:any = await get('/print-jobs', {
+      page: recordPage.value - 1,
+      size: PAGE_SIZE,
+      ...(recordStatus.value ? { status: recordStatus.value } : {}),
+      ...(recordChannel.value ? { channel: recordChannel.value } : {})
+    })
+    records.value = Array.isArray(result?.items) ? result.items : []
+    recordTotal.value = Number(result?.total || 0)
   } catch (e:any) {
     ElMessage.error(e?.response?.data?.message || e?.message || '读取打印记录失败')
   }
+}
+function onRecordFilterChange(){
+  recordPage.value = 1
+  loadRecords()
 }
 function channelCn(v:any){
   const s = String(v || '').toUpperCase()
@@ -342,14 +360,17 @@ async function reprintRecord(record:any){
   finally { reprintingJobNo.value = "" }
 }
 async function loadPending(){
-  const [list, mappings]:any[] = await Promise.all([
-    get('/tasks'),
-    get('/mappings').catch(() => [])
-  ])
-  mappingRows.value = Array.isArray(mappings) ? mappings : []
-  rawRows.value = (Array.isArray(list) ? list : [])
-    .filter(t => printableStatuses.includes(String(t.status || '').toUpperCase()))
-    .filter(t => !t.printGenerated && !t.printJobNo)
+  const first:any = await get('/tasks/printable', { page: 0, size: PAGE_SIZE })
+  const rows:any[] = Array.isArray(first?.items) ? [...first.items] : []
+  const total = Number(first?.total || rows.length)
+  // 兼容尚未重启的旧后端：页面不做分页，但自动取完后端的所有旧分页。
+  for (let page = 1; rows.length < total; page++) {
+    const next:any = await get('/tasks/printable', { page, size: PAGE_SIZE })
+    const items:any[] = Array.isArray(next?.items) ? next.items : []
+    if (!items.length) break
+    rows.push(...items)
+  }
+  rawRows.value = rows
 }
 const filteredRows = computed(() => {
   const tokens = searchKeyword.value.trim().toLowerCase().split(/\s+/).filter(Boolean)
@@ -439,15 +460,37 @@ async function printRows(inputRows:any[], successPrefix:string){
 async function batchPrint(){
   await printRows(oneFactoryRows(batchRows()), '已调起筛选结果打印')
 }
-// 批量为每张标签向后端请求真实 CODE_128 条码 SVG（并发），按 taskNo 建映射；失败的留空由假条码兜底。
+const barcodeSvgCache = new Map<string, string>()
+const barcodeSvgInflight = new Map<string, Promise<string>>()
+async function getBarcodeSvg(codeValue:any){
+  const code = String(codeValue || '').trim()
+  if (!code) return ''
+  const cached = barcodeSvgCache.get(code)
+  if (cached) return cached
+  const existing = barcodeSvgInflight.get(code)
+  if (existing) return existing
+  const request = post('/labels/code/render', { text:code, format:'CODE_128', width:520, height:150, includeText:true })
+    .then((result:any) => {
+      const svg = String(result?.svg || '')
+      if (svg) {
+        barcodeSvgCache.set(code, svg)
+        if (barcodeSvgCache.size > 200) barcodeSvgCache.delete(barcodeSvgCache.keys().next().value as string)
+      }
+      return svg
+    })
+    .finally(() => barcodeSvgInflight.delete(code))
+  barcodeSvgInflight.set(code, request)
+  return request
+}
+// 同一仓库代号只请求一次；预览、批量打印及并发调用共享 SVG 缓存。
 async function renderBarcodes(rows:any[]){
   const map:Record<string, string> = {}
   await Promise.all(rows.map(async (row) => {
     const code = row.warehouseCode || row.barcodeValue
     if (!code) return
     try {
-      const result:any = await post('/labels/code/render', { text: String(code), format: 'CODE_128', width: 520, height: 150, includeText: true })
-      if (result?.svg) map[row.taskNo] = result.svg
+      const svg = await getBarcodeSvg(code)
+      if (svg) map[row.taskNo] = svg
     } catch {}
   }))
   return map
@@ -459,8 +502,7 @@ async function previewPending(row:any){
   const code = row.warehouseCode || row.barcodeValue
   if (code) {
     try {
-      const result:any = await post('/labels/code/render', { text: String(code), format: 'CODE_128', width: 520, height: 150, includeText: true })
-      previewBarcodeSvg.value = result.svg
+      previewBarcodeSvg.value = await getBarcodeSvg(code)
     } catch (e:any) {
       ElMessage.error(e?.response?.data?.message || e?.message || '条形码生成失败')
     }
@@ -486,7 +528,6 @@ function groupsFor(rows:any[], factory:string){
 }
 const availableFactories = computed(() => {
   const counts = new Map<string,number>()
-  for (const row of mappingRows.value) counts.set(factoryName(row),0)
   for (const row of filteredRows.value) { const name=factoryName(row); counts.set(name,(counts.get(name)||0)+1) }
   return Array.from(counts.entries())
     .sort(([a],[b])=>a.localeCompare(b,'zh-Hans-CN',{numeric:true}))
@@ -497,13 +538,6 @@ const selectedFactoryLabel = computed(() => availableFactories.value.find(f=>f.k
 const factoryRows = computed(() => filteredRows.value.filter(r=>factoryKey(r)===selectedFactoryKey.value))
 const availableAreas = computed(() => {
   const counts = new Map<string,number>()
-  if (groupingMode.value === 'area') {
-    for (const row of mappingRows.value) {
-      if (factoryKey(row) !== selectedFactoryKey.value) continue
-      const area=String(row?.deliveryArea ?? '').trim()
-      if (area) counts.set(area,0)
-    }
-  }
   for (const row of factoryRows.value) { const area=groupCategory(row); counts.set(area,(counts.get(area)||0)+1) }
   return [{key:ALL_AREAS,label:'全部',count:factoryRows.value.length}, ...Array.from(counts.entries()).sort(([a],[b])=>a.localeCompare(b,'zh-Hans-CN',{numeric:true})).map(([key,count])=>({key,label:key,count}))]
 })
@@ -654,6 +688,14 @@ async function saveAreaSchedules(){
 onMounted(()=>{
   load()
   setupAutoRefresh()
+})
+watch(previewDialog, open => {
+  if (open) {
+    if (refreshTimer) window.clearInterval(refreshTimer)
+    refreshTimer = undefined
+  } else {
+    setupAutoRefresh()
+  }
 })
 onUnmounted(()=>{
   if (refreshTimer) window.clearInterval(refreshTimer)
