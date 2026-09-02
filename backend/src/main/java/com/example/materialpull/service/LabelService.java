@@ -29,8 +29,14 @@ public class LabelService {
     private final OperationGuard guard;
     private final AppProperties properties;
     private final ExternalHttpClient externalHttpClient;
+    private final MaterialMappingRepository mappingRepository;
+    private final DataScopeService dataScopeService;
 
-    public List<LabelEntity> list(){ return labelRepository.findAll(PageRequest.of(0, 1000, Sort.by(Sort.Direction.DESC, "id"))).getContent(); }
+    public List<LabelEntity> list(){
+        if (dataScopeService.isGlobalAdmin()) return labelRepository.findAll(PageRequest.of(0, 1000, Sort.by(Sort.Direction.DESC, "id"))).getContent();
+        return labelRepository.findTop1000ByFactoryIgnoreCaseAndDeliveryAreaInOrderByIdDesc(
+                dataScopeService.currentFactory(), dataScopeService.currentDeliveryAreas());
+    }
 
     @Transactional
     public List<LabelEntity> generate(LabelDtos.GenerateRequest req) {
@@ -42,6 +48,9 @@ public class LabelService {
         for (int i=0;i<count;i++) {
             String code = "LBL-" + req.stationCode + "-" + req.materialCode + "-" + IdGenerator.id("N").replace("N-", "") + "-" + i;
             LabelEntity l = new LabelEntity();
+            MaterialMappingEntity scope = requireUniqueMapping(s.getWarehouseMaterialCode());
+            dataScopeService.requireAccessFactoryArea(scope.getFactory(), scope.getDeliveryArea());
+            l.setFactory(scope.getFactory()); l.setDeliveryArea(scope.getDeliveryArea());
             l.setLabelCode(code); l.setLabelType("INTERNAL_BOX_LABEL"); l.setCodeCarrierType("QR_CODE"); l.setPrimaryScanValue(code);
             l.setLineCode(s.getLineCode()); l.setStationCode(s.getStationCode()); l.setStationName(s.getStationName());
             l.setProjectCode(s.getProjectCode()); l.setRouteName(s.getRouteName()); l.setDeliveryAddress(s.getDeliveryAddress());
@@ -140,6 +149,9 @@ public class LabelService {
         req.templateCode = firstNotBlank(req.templateCode, templateByType(req.labelType));
         req.materialName = guard.notBlank(req.materialName, "物料名称");
         String warehouseCode = blankToNull(req.warehouseCode == null ? null : resolverService.normalize(req.warehouseCode));
+        String scopeWarehouseCode = firstNotBlank(warehouseCode, req.warehouseMaterialCode);
+        MaterialMappingEntity scope = requireUniqueMapping(scopeWarehouseCode);
+        dataScopeService.requireAccessFactoryArea(scope.getFactory(), scope.getDeliveryArea());
         if ("FACTORY_PULL_BARCODE".equals(req.labelType) && (warehouseCode == null || warehouseCode.isBlank())) {
             throw new BusinessException(ErrorCode.PARAM_ERROR, "真实工厂标签必须填写仓库代码；条形码扫码值应等于仓库代码");
         }
@@ -173,6 +185,7 @@ public class LabelService {
         if (bindBox && boxRepository.findByBoxCode(boxCode).isPresent()) throw new BusinessException(ErrorCode.DATA_DIRTY, "盒号已存在：" + boxCode);
 
         LabelEntity l = new LabelEntity();
+        l.setFactory(scope.getFactory()); l.setDeliveryArea(scope.getDeliveryArea());
         l.setLabelCode(labelCode); l.setLabelType(req.labelType); l.setCodeCarrierType(req.codeCarrierType);
         l.setPrimaryScanValue(primary); l.setSecondaryScanValue(req.secondaryScanValue); l.setBarcodeValue(barcode); l.setWarehouseCode(warehouseCode);
         l.setWarehouseAddress(req.warehouseAddress); l.setSendStationAddress(req.sendStationAddress); l.setBoxSize(req.boxSize);
@@ -194,6 +207,7 @@ public class LabelService {
 
         if (bindBox) {
             BoxEntity b = new BoxEntity();
+            b.setFactory(scope.getFactory()); b.setDeliveryArea(scope.getDeliveryArea());
             b.setBoxCode(boxCode); b.setPairCode(pairCode); b.setBoxSide(boxSide); b.setLabelCode(labelCode); b.setBarcodeValue(firstNotBlank(barcode, primary));
             b.setWarehouseCode(warehouseCode); b.setWarehouseAddress(req.warehouseAddress); b.setSendStationAddress(req.sendStationAddress); b.setBoxSize(req.boxSize); b.setKanbanCardNo(kanban);
             b.setAreaCode(req.areaCode); b.setLineCode(l.getLineCode()); b.setStationCode(stationCode); b.setStationName(l.getStationName());
@@ -208,9 +222,22 @@ public class LabelService {
         return saved;
     }
 
+    private MaterialMappingEntity requireUniqueMapping(String warehouseCode) {
+        String code = guard.notBlank(warehouseCode, "仓库代码");
+        List<MaterialMappingEntity> candidates = mappingRepository.findAllByWarehouseCodeAndEnabledTrueOrderByIdAsc(code);
+        if (candidates.isEmpty()) throw new BusinessException(ErrorCode.NOT_FOUND, "仓库代码未找到启用的范围映射：" + code);
+        if (candidates.size() != 1) throw new BusinessException(ErrorCode.DATA_DIRTY, "仓库代码匹配到多个范围，拒绝创建标签：" + code);
+        MaterialMappingEntity mapping = candidates.get(0);
+        if (mapping.getFactory() == null || mapping.getFactory().isBlank() || mapping.getDeliveryArea() == null || mapping.getDeliveryArea().isBlank()) {
+            throw new BusinessException(ErrorCode.DATA_DIRTY, "仓库代码映射缺少工厂或配送区域：" + code);
+        }
+        return mapping;
+    }
+
     @Transactional(readOnly = true)
     public LabelDtos.PreviewResponse preview(String scanCode) {
         LabelEntity l = resolverService.resolve(scanCode);
+        dataScopeService.requireAccessFactoryArea(l.getFactory(), l.getDeliveryArea());
         return toPreview(l);
     }
 
@@ -218,6 +245,7 @@ public class LabelService {
     public LabelEntity print(String scanCode, LabelDtos.PrintRequest req) {
         if (req == null) req = new LabelDtos.PrintRequest();
         LabelEntity l = resolverService.resolveForUpdate(scanCode);
+        dataScopeService.requireAccessFactoryArea(l.getFactory(), l.getDeliveryArea());
         if (l.getStatus() == LabelStatus.VOIDED) throw new BusinessException(ErrorCode.STATE_CONFLICT, "作废标签不能打印");
         String printerName = firstNotBlank(req.printerName, properties.getDefaultPrinterName());
         if (printerName == null || printerName.isBlank()) throw new BusinessException(ErrorCode.PARAM_ERROR, "打印机名称不能为空，生产环境禁止使用未指定打印机");
@@ -243,6 +271,7 @@ public class LabelService {
     @Transactional
     public LabelEntity voidLabel(String scanCode, String operator) {
         LabelEntity l = resolverService.resolveForUpdate(scanCode);
+        dataScopeService.requireAccessFactoryArea(l.getFactory(), l.getDeliveryArea());
         boxRepository.findByLabelCode(l.getLabelCode()).ifPresent(b -> { throw new BusinessException(ErrorCode.STATE_CONFLICT, "标签已绑定盒子，不能直接作废；请先停用盒子或走异常处理流程"); });
         l.setStatus(LabelStatus.VOIDED);
         auditService.print(l.getLabelCode(), "VOID", OperatorResolver.currentOperator(), null, true, "标签作废；主扫码值=" + l.getPrimaryScanValue());
@@ -254,7 +283,7 @@ public class LabelService {
         r.labelCode = l.getLabelCode(); r.labelType = l.getLabelType(); r.codeCarrierType = l.getCodeCarrierType(); r.templateCode = l.getTemplateCode();
         r.primaryScanValue = l.getPrimaryScanValue(); r.secondaryScanValue = l.getSecondaryScanValue(); r.barcodeValue = l.getBarcodeValue();
         r.warehouseCode = l.getWarehouseCode(); r.warehouseAddress = l.getWarehouseAddress(); r.sendStationAddress = l.getSendStationAddress(); r.boxSize = l.getBoxSize();
-        r.kanbanCardNo = l.getKanbanCardNo(); r.areaCode = l.getAreaCode(); r.deliveryArea = l.getAreaCode();
+        r.kanbanCardNo = l.getKanbanCardNo(); r.areaCode = l.getAreaCode(); r.deliveryArea = l.getDeliveryArea();
         r.projectCode = l.getProjectCode(); r.routeName = l.getRouteName(); r.deliveryAddress = l.getDeliveryAddress();
         r.businessCode = l.getBusinessCode(); r.gridCode = l.getGridCode(); r.pointOfUseAddress = l.getPointOfUseAddress(); r.routing = l.getRouting(); r.cardNo = l.getCardNo(); r.cardTotal = l.getCardTotal();
         r.supermarketBusiness = l.getSupermarketBusiness(); r.supermarketGrid = l.getSupermarketGrid(); r.supermarketAddress = l.getSupermarketAddress();
@@ -265,7 +294,7 @@ public class LabelService {
     }
 
     private String labelPrintPayload(LabelEntity l, String printerName, boolean reprint) {
-        return "{\"printJobNo\":\"" + esc(IdGenerator.id("LBLPRN")) + "\",\"printType\":\"LABEL_TEMPLATE\",\"printerName\":\"" + esc(printerName) + "\",\"reprint\":\"" + reprint + "\",\"labelCode\":\"" + esc(l.getLabelCode()) + "\",\"labelType\":\"" + esc(l.getLabelType()) + "\",\"primaryScanValue\":\"" + esc(l.getPrimaryScanValue()) + "\",\"warehouseCode\":\"" + esc(l.getWarehouseCode()) + "\",\"materialCode\":\"" + esc(l.getMaterialCode()) + "\",\"materialName\":\"" + esc(l.getMaterialName()) + "\",\"materialImageUrl\":\"" + esc(l.getMaterialImageUrl()) + "\",\"qty\":\"" + l.getStandardQty() + "\",\"warehouseAddress\":\"" + esc(l.getWarehouseAddress()) + "\",\"sendStationAddress\":\"" + esc(firstNotBlank(l.getSendStationAddress(), l.getDeliveryAddress(), l.getStationCode())) + "\",\"deliveryArea\":\"" + esc(l.getAreaCode()) + "\",\"templateCode\":\"" + esc(l.getTemplateCode()) + "\"}";
+        return "{\"printJobNo\":\"" + esc(IdGenerator.id("LBLPRN")) + "\",\"printType\":\"LABEL_TEMPLATE\",\"printerName\":\"" + esc(printerName) + "\",\"reprint\":\"" + reprint + "\",\"labelCode\":\"" + esc(l.getLabelCode()) + "\",\"labelType\":\"" + esc(l.getLabelType()) + "\",\"primaryScanValue\":\"" + esc(l.getPrimaryScanValue()) + "\",\"warehouseCode\":\"" + esc(l.getWarehouseCode()) + "\",\"materialCode\":\"" + esc(l.getMaterialCode()) + "\",\"materialName\":\"" + esc(l.getMaterialName()) + "\",\"materialImageUrl\":\"" + esc(l.getMaterialImageUrl()) + "\",\"qty\":\"" + l.getStandardQty() + "\",\"warehouseAddress\":\"" + esc(l.getWarehouseAddress()) + "\",\"sendStationAddress\":\"" + esc(firstNotBlank(l.getSendStationAddress(), l.getDeliveryAddress(), l.getStationCode())) + "\",\"deliveryArea\":\"" + esc(l.getDeliveryArea()) + "\",\"templateCode\":\"" + esc(l.getTemplateCode()) + "\"}";
     }
 
     private String esc(String v) { return v == null ? "" : v.replace("\\", "\\\\").replace("\"", "\\\"").replace("\r", "\\r").replace("\n", "\\n"); }

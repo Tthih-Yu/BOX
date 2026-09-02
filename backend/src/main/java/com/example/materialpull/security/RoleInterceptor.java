@@ -23,7 +23,9 @@ public class RoleInterceptor implements HandlerInterceptor {
 
         UserRole current = RequestContext.getRole();
         if (current == null) throw new BusinessException(ErrorCode.UNAUTHORIZED, "未登录或登录已失效");
-        if (current == UserRole.ADMIN || current == UserRole.SYSTEM) return true;
+        // ADMIN 是人工最高权限账号；SYSTEM 仅允许访问显式声明 SYSTEM 的机器接口，
+        // 禁止外部 API Key 借 SYSTEM 身份绕过所有业务角色限制。
+        if (current == UserRole.ADMIN) return true;
         if (Arrays.stream(required.value()).anyMatch(role -> role == current)) return true;
         // 普通管理员(SUB_ADMIN)是“准管理员”：除管理员专属接口(仅标注 ADMIN)外全部放行。
         // 用户管理、系统参数、菜单权限配置等敏感接口都是 ADMIN-only，因此 SUB_ADMIN 无法借此提权。

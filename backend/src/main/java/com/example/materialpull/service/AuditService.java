@@ -14,12 +14,20 @@ public class AuditService {
     private final InterfaceLogRepository interfaceLogRepository;
 
     public void scan(String labelCode, String boxCode, String action, boolean success, String message, String operator, String deviceNo, String stationCode, String materialCode) {
+        scan(labelCode, boxCode, action, success, message, operator, deviceNo, stationCode, materialCode, null, null);
+    }
+
+    public void scan(String labelCode, String boxCode, String action, boolean success, String message, String operator,
+                     String deviceNo, String stationCode, String materialCode, String factory, String deliveryArea) {
         ScanLogEntity log = new ScanLogEntity();
         log.setLabelCode(labelCode); log.setBoxCode(boxCode); log.setAction(action);
         log.setSuccess(success); log.setMessage(message); log.setOperator(operator); log.setDeviceNo(deviceNo);
         log.setStationCode(stationCode); log.setMaterialCode(materialCode);
+        log.setFactory(normalize(factory)); log.setDeliveryArea(normalize(deliveryArea));
         scanLogRepository.save(log);
     }
+
+    private String normalize(String value) { return value == null || value.isBlank() ? null : value.trim(); }
 
     public void task(String taskNo, String action, String fromStatus, String toStatus, String operator, String message) {
         TaskLogEntity log = new TaskLogEntity();

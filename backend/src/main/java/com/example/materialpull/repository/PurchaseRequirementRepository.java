@@ -9,4 +9,6 @@ public interface PurchaseRequirementRepository extends JpaRepository<PurchaseReq
     Optional<PurchaseRequirementEntity> findByPurchaseNo(String purchaseNo);
     List<PurchaseRequirementEntity> findByDemandNo(String demandNo);
     List<PurchaseRequirementEntity> findByStatus(PurchaseStatus status);
+    List<PurchaseRequirementEntity> findTop1000ByFactoryIgnoreCaseOrderByIdDesc(String factory);
+    List<PurchaseRequirementEntity> findByFactoryIgnoreCaseAndStatusOrderByIdDesc(String factory, PurchaseStatus status);
 }

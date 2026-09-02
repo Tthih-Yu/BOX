@@ -21,16 +21,26 @@ public class AgvService {
     private final RealtimePushService pushService;
     private final AppProperties properties;
     private final ExternalHttpClient externalHttpClient;
+    private final DataScopeService dataScopeService;
 
     public List<AgvJobEntity> list(String status) {
-        if (status == null || status.isBlank()) return agvJobRepository.findTop1000ByOrderByCreatedAtDesc();
-        AgvJobStatus s;
+        AgvJobStatus s = null;
         try {
-            s = AgvJobStatus.valueOf(status.trim().toUpperCase(Locale.ROOT));
+            if (status != null && !status.isBlank()) s = AgvJobStatus.valueOf(status.trim().toUpperCase(Locale.ROOT));
         } catch (IllegalArgumentException e) {
             throw new BusinessException(ErrorCode.PARAM_ERROR, "未知AGV状态：" + status);
         }
-        return agvJobRepository.findTop1000ByStatusOrderByCreatedAtDesc(s);
+        List<AgvJobEntity> jobs = s == null ? agvJobRepository.findTop1000ByOrderByCreatedAtDesc()
+                : agvJobRepository.findTop1000ByStatusOrderByCreatedAtDesc(s);
+        if (dataScopeService.isGlobalAdmin()) return jobs;
+        if (jobs.isEmpty()) return jobs;
+        Map<String, ReplenishmentTaskEntity> tasks = taskRepository.findByTaskNoIn(
+                        jobs.stream().map(AgvJobEntity::getTaskNo).filter(Objects::nonNull).distinct().toList()).stream()
+                .collect(java.util.stream.Collectors.toMap(ReplenishmentTaskEntity::getTaskNo, task -> task, (a, b) -> a));
+        return jobs.stream().filter(job -> {
+            ReplenishmentTaskEntity task = tasks.get(job.getTaskNo());
+            return task != null && dataScopeService.canAccessFactoryArea(task.getFactory(), task.getDeliveryArea());
+        }).toList();
     }
 
     @Transactional
@@ -39,6 +49,7 @@ public class AgvService {
         if (request.taskNo == null || request.taskNo.isBlank()) throw new BusinessException(ErrorCode.PARAM_ERROR, "任务号不能为空");
         ReplenishmentTaskEntity task = taskRepository.findByTaskNo(request.taskNo)
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "任务不存在：" + request.taskNo));
+        dataScopeService.requireAccessFactoryArea(task.getFactory(), task.getDeliveryArea());
         if (task.getStatus() == TaskStatus.COMPLETED || task.getStatus() == TaskStatus.CANCELLED) {
             throw new BusinessException(ErrorCode.STATE_CONFLICT, "已完成或已取消任务不能派发AGV：" + task.getStatus());
         }
@@ -71,7 +82,7 @@ public class AgvService {
             task.setAgvDispatched(!isReturnJob(type));
             taskRepository.save(task);
             auditService.iface("AGV_DISPATCH_SKIPPED", "OUT", job.getRequestPayload(), job.getResponsePayload(), true, "AGV接口未配置，主流程继续：" + job.getAgvJobNo());
-            pushService.publish("agvJobs", job);
+            publish(job, task);
             return job;
         }
 
@@ -92,7 +103,7 @@ public class AgvService {
         taskRepository.save(task);
         auditService.iface("AGV_DISPATCH", "OUT", job.getRequestPayload(), job.getResponsePayload(), true, "AGV任务已下发到真实调度系统：" + job.getAgvJobNo());
         auditService.task(task.getTaskNo(), "AGV_DISPATCH", task.getStatus().name(), task.getStatus().name(), operator, "AGV任务=" + job.getAgvJobNo());
-        pushService.publish("agvJobs", job);
+        publish(job, task);
         return job;
     }
 
@@ -130,7 +141,7 @@ public class AgvService {
             job.setResponsePayload(responsePayload);
             agvJobRepository.save(job);
             auditService.iface("AGV_CANCEL", "OUT", cancelPayload, job.getResponsePayload(), true, "任务取消已同步真实AGV系统");
-            pushService.publish("agvJobs", job);
+            publish(job, taskRepository.findByTaskNo(job.getTaskNo()).orElse(null));
         }
     }
 
@@ -155,7 +166,7 @@ public class AgvService {
         job.setResponsePayload("{\"status\":\"" + s.name() + "\",\"message\":\"" + esc(message) + "\"}");
         agvJobRepository.save(job);
         auditService.iface("AGV_CALLBACK", "IN", agvJobNo, job.getResponsePayload(), s != AgvJobStatus.FAILED, firstNonBlank(message, "AGV状态回调"));
-        pushService.publish("agvJobs", job);
+        publish(job, taskRepository.findByTaskNo(job.getTaskNo()).orElse(null));
         return job;
     }
 
@@ -176,7 +187,7 @@ public class AgvService {
                 job.setStatus(AgvJobStatus.ARRIVED);
                 job.setArrivedAt(LocalDateTime.now());
                 agvJobRepository.save(job);
-                pushService.publish("agvJobs", job);
+                publish(job, taskRepository.findByTaskNo(job.getTaskNo()).orElse(null));
             }
         }
     }
@@ -187,6 +198,14 @@ public class AgvService {
                 .filter(job -> firstNonBlank(containerNo) == null || Objects.equals(firstNonBlank(job.getContainerNo()), firstNonBlank(containerNo)))
                 .filter(job -> job.getStatus() == AgvJobStatus.CREATED || job.getStatus() == AgvJobStatus.SENT || job.getStatus() == AgvJobStatus.ACCEPTED || job.getStatus() == AgvJobStatus.IN_TRANSIT)
                 .findFirst();
+    }
+
+    private void publish(AgvJobEntity job, ReplenishmentTaskEntity task) {
+        if (task != null) {
+            job.setFactory(task.getFactory());
+            job.setDeliveryArea(task.getDeliveryArea());
+        }
+        pushService.publish("agvJobs", job);
     }
 
     private boolean isReturnJob(String jobType) {

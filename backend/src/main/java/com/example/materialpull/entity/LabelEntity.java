@@ -18,12 +18,15 @@ import java.time.LocalDateTime;
         @Index(name = "idx_label_primary_scan", columnList = "primaryScanValue", unique = true),
         @Index(name = "idx_label_warehouse_code", columnList = "warehouseCode", unique = true),
         @Index(name = "idx_label_type", columnList = "labelType,codeCarrierType"),
-        @Index(name = "idx_label_pou", columnList = "businessCode,pointOfUseAddress")
+        @Index(name = "idx_label_pou", columnList = "businessCode,pointOfUseAddress"),
+        @Index(name = "idx_label_scope", columnList = "factory,deliveryArea")
 })
 public class LabelEntity {
     @Id @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
     @Version private Long version;
+    private String factory;
+    private String deliveryArea;
 
     private String labelCode;
     private String labelType = "SITE_KANBAN_BARCODE";

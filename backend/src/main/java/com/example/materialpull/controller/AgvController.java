@@ -18,11 +18,11 @@ public class AgvController {
     private final AgvService service;
 
     @GetMapping
-    @RequireRoles({UserRole.PLANNER, UserRole.WAREHOUSE, UserRole.VIEWER, UserRole.SYSTEM})
+    @RequireRoles({UserRole.PLANNER, UserRole.WAREHOUSE, UserRole.VIEWER})
     public ApiResponse<List<AgvJobEntity>> list(@RequestParam(required = false) String status) { return ApiResponse.ok(service.list(status)); }
 
     @PostMapping("/dispatch")
-    @RequireRoles({UserRole.WAREHOUSE, UserRole.SYSTEM})
+    @RequireRoles({UserRole.WAREHOUSE})
     public ApiResponse<AgvJobEntity> dispatch(@RequestBody FactoryDtos.AgvDispatchRequest req) { return ApiResponse.ok(service.dispatch(req)); }
 
     @PostMapping("/callback")

@@ -15,9 +15,15 @@ public interface WeeklyPlanShiftQtyRepository extends JpaRepository<WeeklyPlanSh
      * 取某一天各 8D 号的数量合计（白班 + 夜班）。
      * 返回 [productCode, qtySum]，供联动计算按「当天用量」刷新料号映射数量。
      */
-    @Query("select r.productCode, sum(s.qty) from WeeklyPlanShiftQtyEntity s, WeeklyPlanRowEntity r " +
-           "where s.rowId = r.id and s.planDate = :date group by r.productCode")
-    List<Object[]> sumByProductCodeOnDate(@Param("date") java.time.LocalDate date);
+    @Query("select r.factory, r.productCode, sum(s.qty) from WeeklyPlanShiftQtyEntity s, WeeklyPlanRowEntity r " +
+           "where s.rowId = r.id and s.planDate = :date group by r.factory, r.productCode")
+    List<Object[]> sumByFactoryAndProductCodeOnDate(@Param("date") java.time.LocalDate date);
+
+    @Query("select r.factory, r.productCode, sum(s.qty) from WeeklyPlanShiftQtyEntity s, WeeklyPlanRowEntity r " +
+           "where s.rowId = r.id and s.planDate = :date and lower(r.factory) = lower(:factory) " +
+           "group by r.factory, r.productCode")
+    List<Object[]> sumByFactoryAndProductCodeOnDate(@Param("date") java.time.LocalDate date,
+                                                     @Param("factory") String factory);
 
     /** 某一天是否有任何周计划数据。 */
     @Query("select count(s) from WeeklyPlanShiftQtyEntity s where s.planDate = :date")

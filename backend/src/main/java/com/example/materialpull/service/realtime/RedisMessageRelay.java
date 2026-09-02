@@ -33,7 +33,8 @@ public class RedisMessageRelay implements MessageRelay {
     @Override
     public void relay(String topic, Object body) {
         try {
-            String payload = mapper.writeValueAsString(new Envelope(topic, mapper.writeValueAsString(body)));
+            String payload = mapper.writeValueAsString(new Envelope(topic, mapper.writeValueAsString(body),
+                    ScopeDestinations.scopeType(body), ScopeDestinations.factory(body), ScopeDestinations.area(body)));
             redis.convertAndSend(channel(), payload);
         } catch (Exception e) {
             log.warn("Redis 广播发布失败 topic={} msg={}", topic, e.getMessage());
@@ -41,5 +42,5 @@ public class RedisMessageRelay implements MessageRelay {
     }
 
     /** body 预先序列化为 JSON 字符串，订阅端按目标类型或原样转发。 */
-    public record Envelope(String topic, String bodyJson) {}
+    public record Envelope(String topic, String bodyJson, String scopeType, String factory, String deliveryArea) {}
 }

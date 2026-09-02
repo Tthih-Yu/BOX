@@ -36,6 +36,7 @@ public class ScanService {
     private final StationMaterialRepository stationMaterialRepository;
     private final SystemConfigRepository configRepository;
     private final MaterialRepository materialRepository;
+    private final DataScopeService dataScopeService;
 
     @Value("${app.task.timeout-minutes:120}")
     private long timeoutMinutes;
@@ -94,7 +95,7 @@ public class ScanService {
         actionReq.remark = firstNonBlank(req.reason, "现场扫码收货确认，设备=" + req.deviceNo);
         actionReq.requestId = firstNonBlank(req.idempotencyKey, RequestContext.getTraceId());
         ReplenishmentTaskEntity task = taskService.receiveBySiteScan(taskNo, actionReq);
-        auditService.scan(firstNonBlank(task.getSourceLabelCode(), rawScanCode), task.getBoxCode(), "RECEIVE", true, "现场收货确认，任务=" + task.getTaskNo() + "，空盒=" + req.emptyContainerNo, req.operator, req.deviceNo, task.getStationCode(), task.getMaterialCode());
+        auditService.scan(firstNonBlank(task.getSourceLabelCode(), rawScanCode), task.getBoxCode(), "RECEIVE", true, "现场收货确认，任务=" + task.getTaskNo() + "，空盒=" + req.emptyContainerNo, req.operator, req.deviceNo, task.getStationCode(), task.getMaterialCode(), task.getFactory(), task.getDeliveryArea());
         ScanDtos.ScanResult r = new ScanDtos.ScanResult();
         r.taskCreated = false;
         r.taskNo = task.getTaskNo();
@@ -147,7 +148,7 @@ public class ScanService {
             actionReq.requestId = firstNonBlank(req.idempotencyKey, RequestContext.getTraceId());
             task = taskService.action(taskNo, "exception", actionReq);
         }
-        auditService.scan(rawScanCode, task == null ? null : task.getBoxCode(), "SITE_EXCEPTION", true, event.getContent(), req.operator, req.deviceNo, task == null ? null : task.getStationCode(), task == null ? null : task.getMaterialCode());
+        auditService.scan(rawScanCode, task == null ? null : task.getBoxCode(), "SITE_EXCEPTION", true, event.getContent(), req.operator, req.deviceNo, task == null ? null : task.getStationCode(), task == null ? null : task.getMaterialCode(), task == null ? null : task.getFactory(), task == null ? null : task.getDeliveryArea());
         alertService.open(event.getLevel(), "SITE_EXCEPTION", event.getEventNo(), event.getTitle(), event.getContent());
         ScanDtos.ScanResult r = new ScanDtos.ScanResult();
         r.taskCreated = false;
@@ -246,10 +247,12 @@ public class ScanService {
             throw new BusinessException(ErrorCode.STATE_CONFLICT, "盒子处于异常或报废状态，禁止扫码：" + box.getStatus());
         }
 
-        List<ReplenishmentTaskEntity> existing = taskRepository.findBySourceLabelCodeAndStatusIn(resolvedLabelCode, blockingStatuses());
+        MappingScope boxScope = resolveMappingScope(box.getWarehouseCode(), box.getMaterialCode());
+        List<ReplenishmentTaskEntity> existing = taskRepository.findByFactoryAndDeliveryAreaAndSourceLabelCodeAndStatusIn(
+                boxScope.factory(), boxScope.deliveryArea(), resolvedLabelCode, blockingStatuses());
         if (!existing.isEmpty() && !Boolean.TRUE.equals(req.allowRepeat)) {
             ReplenishmentTaskEntity t = existing.stream().max(Comparator.comparing(ReplenishmentTaskEntity::getCreatedAt)).orElse(existing.get(0));
-            auditService.scan(resolvedLabelCode, box.getBoxCode(), "EMPTY_DUPLICATE", true, "重复扫码被拦截，返回已有任务：" + t.getTaskNo() + "，原始扫码=" + req.scanCode, req.operator, req.deviceNo, box.getStationCode(), box.getMaterialCode());
+            auditService.scan(resolvedLabelCode, box.getBoxCode(), "EMPTY_DUPLICATE", true, "重复扫码被拦截，返回已有任务：" + t.getTaskNo() + "，原始扫码=" + req.scanCode, req.operator, req.deviceNo, box.getStationCode(), box.getMaterialCode(), t.getFactory(), t.getDeliveryArea());
             return duplicateResult(box, t, "该标签已经存在仓库未出发的补货任务，系统已阻止重复生成：" + t.getTaskNo());
         }
 
@@ -261,7 +264,7 @@ public class ScanService {
             box.setLockedAt(LocalDateTime.now());
             boxRepository.save(box);
             alertService.open("ERROR", "BOX_PAIR", box.getPairCode(), "AB双盒配对异常", "配对编码 " + box.getPairCode() + " 下盒子数量为 " + pair.size());
-            auditService.scan(resolvedLabelCode, box.getBoxCode(), "EMPTY", false, "AB配对异常，原始扫码=" + req.scanCode, req.operator, req.deviceNo, box.getStationCode(), box.getMaterialCode());
+            auditService.scan(resolvedLabelCode, box.getBoxCode(), "EMPTY", false, "AB配对异常，原始扫码=" + req.scanCode, req.operator, req.deviceNo, box.getStationCode(), box.getMaterialCode(), boxScope.factory(), boxScope.deliveryArea());
             throw new BusinessException(ErrorCode.DATA_DIRTY, "AB配对异常，请维护盒子数据：" + box.getPairCode());
         }
 
@@ -279,7 +282,7 @@ public class ScanService {
             current.setLastError(msg);
             current.setHealthStatus("STATE_CONFLICT");
             boxRepository.save(current);
-            auditService.scan(resolvedLabelCode, current.getBoxCode(), "EMPTY", false, msg + "，原始扫码=" + req.scanCode, req.operator, req.deviceNo, current.getStationCode(), current.getMaterialCode());
+            auditService.scan(resolvedLabelCode, current.getBoxCode(), "EMPTY", false, msg + "，原始扫码=" + req.scanCode, req.operator, req.deviceNo, current.getStationCode(), current.getMaterialCode(), boxScope.factory(), boxScope.deliveryArea());
             throw new BusinessException(ErrorCode.STATE_CONFLICT, msg);
         }
 
@@ -291,7 +294,7 @@ public class ScanService {
             current.setLastError("备用盒状态=" + standby.getStatus());
             boxRepository.save(current);
             alertService.open("ERROR", "BOX_SWITCH", current.getPairCode(), "备用盒状态异常", "当前盒 " + current.getBoxCode() + " 扫空时，备用盒 " + standby.getBoxCode() + " 状态为 " + standby.getStatus());
-            auditService.scan(resolvedLabelCode, current.getBoxCode(), "EMPTY", false, "备用盒不是满盒状态，触发异常锁定，原始扫码=" + req.scanCode, req.operator, req.deviceNo, current.getStationCode(), current.getMaterialCode());
+            auditService.scan(resolvedLabelCode, current.getBoxCode(), "EMPTY", false, "备用盒不是满盒状态，触发异常锁定，原始扫码=" + req.scanCode, req.operator, req.deviceNo, current.getStationCode(), current.getMaterialCode(), boxScope.factory(), boxScope.deliveryArea());
             throw new BusinessException(ErrorCode.STATE_CONFLICT, "备用盒不是满盒状态，请人工处理，系统已锁定当前盒");
         }
 
@@ -315,7 +318,7 @@ public class ScanService {
         task.setMaterialImageUrl(label.getMaterialImageUrl());
         taskRepository.save(task);
 
-        auditService.scan(resolvedLabelCode, current.getBoxCode(), "EMPTY", true, "扫码成功，生成补货任务：" + task.getTaskNo() + "，原始扫码=" + req.scanCode, req.operator, req.deviceNo, current.getStationCode(), current.getMaterialCode());
+        auditService.scan(resolvedLabelCode, current.getBoxCode(), "EMPTY", true, "扫码成功，生成补货任务：" + task.getTaskNo() + "，原始扫码=" + req.scanCode, req.operator, req.deviceNo, current.getStationCode(), current.getMaterialCode(), task.getFactory(), task.getDeliveryArea());
         auditService.task(task.getTaskNo(), "CREATE_BY_SCAN", null, task.getStatus().name(), req.operator, "由现场扫码生成，备用盒已切换为使用中");
         pushService.publish("tasks", task);
         pushService.publish("boxes", pair);
@@ -346,7 +349,9 @@ public class ScanService {
     private ScanDtos.ScanResult doSpareUrgentPull(ScanDtos.ScanRequest req, LabelEntity label, BoxEntity scannedStandby, BoxEntity otherBox, List<BoxEntity> pair) {
         String resolvedLabelCode = label.getLabelCode();
         String emptyLabelCode = firstNonBlank(otherBox.getLabelCode(), resolvedLabelCode);
-        List<ReplenishmentTaskEntity> existing = taskRepository.findBySourceLabelCodeAndStatusIn(emptyLabelCode, blockingStatuses());
+        MappingScope boxScope = resolveMappingScope(otherBox.getWarehouseCode(), otherBox.getMaterialCode());
+        List<ReplenishmentTaskEntity> existing = taskRepository.findByFactoryAndDeliveryAreaAndSourceLabelCodeAndStatusIn(
+                boxScope.factory(), boxScope.deliveryArea(), emptyLabelCode, blockingStatuses());
         if (!existing.isEmpty() && !Boolean.TRUE.equals(req.allowRepeat)) {
             ReplenishmentTaskEntity t = latest(existing);
             return duplicateResult(otherBox, t, "该AB盒已存在仓库未出发的紧急补货任务，系统已阻止重复生成：" + t.getTaskNo());
@@ -357,7 +362,7 @@ public class ScanService {
             scannedStandby.setLastError(msg);
             boxRepository.save(scannedStandby);
             alertService.open("ERROR", "BOX_SWITCH", scannedStandby.getPairCode(), "备用标签紧急拉动被拦截", msg);
-            auditService.scan(resolvedLabelCode, scannedStandby.getBoxCode(), "SPARE_URGENT", false, msg + "，原始扫码=" + req.scanCode, req.operator, req.deviceNo, scannedStandby.getStationCode(), scannedStandby.getMaterialCode());
+            auditService.scan(resolvedLabelCode, scannedStandby.getBoxCode(), "SPARE_URGENT", false, msg + "，原始扫码=" + req.scanCode, req.operator, req.deviceNo, scannedStandby.getStationCode(), scannedStandby.getMaterialCode(), boxScope.factory(), boxScope.deliveryArea());
             throw new BusinessException(ErrorCode.STATE_CONFLICT, msg);
         }
         otherBox.setStatus(BoxStatus.EMPTY_WAITING_PULL);
@@ -380,7 +385,7 @@ public class ScanService {
         task.setDeadlineAt(LocalDateTime.now().plusMinutes(Math.min(timeoutMinutes, 30)));
         task.setRemark("现场扫描备用标签，原使用盒已切为空盒待补；任务绑定空盒，避免补回正在使用的备用盒");
         taskRepository.save(task);
-        auditService.scan(resolvedLabelCode, otherBox.getBoxCode(), "SPARE_URGENT", true, "扫描备用标签，生成紧急补货任务：" + task.getTaskNo(), req.operator, req.deviceNo, otherBox.getStationCode(), otherBox.getMaterialCode());
+        auditService.scan(resolvedLabelCode, otherBox.getBoxCode(), "SPARE_URGENT", true, "扫描备用标签，生成紧急补货任务：" + task.getTaskNo(), req.operator, req.deviceNo, otherBox.getStationCode(), otherBox.getMaterialCode(), task.getFactory(), task.getDeliveryArea());
         auditService.task(task.getTaskNo(), "CREATE_BY_SPARE_LABEL", null, task.getStatus().name(), req.operator, task.getRemark());
         pushService.publish("tasks", task);
         pushService.publish("boxes", pair);
@@ -412,10 +417,12 @@ public class ScanService {
      */
     private ScanDtos.ScanResult doDirectPull(ScanDtos.ScanRequest req, LabelEntity label) {
         String resolvedLabelCode = label.getLabelCode();
-        List<ReplenishmentTaskEntity> existing = taskRepository.findBySourceLabelCodeAndStatusIn(resolvedLabelCode, blockingStatuses());
+        MappingScope labelScope = resolveMappingScope(label.getWarehouseCode(), label.getMaterialCode());
+        List<ReplenishmentTaskEntity> existing = taskRepository.findByFactoryAndDeliveryAreaAndSourceLabelCodeAndStatusIn(
+                labelScope.factory(), labelScope.deliveryArea(), resolvedLabelCode, blockingStatuses());
         if (!existing.isEmpty() && !Boolean.TRUE.equals(req.allowRepeat)) {
             ReplenishmentTaskEntity t = existing.stream().max(Comparator.comparing(ReplenishmentTaskEntity::getCreatedAt)).orElse(existing.get(0));
-            auditService.scan(resolvedLabelCode, null, "DIRECT_PULL_DUPLICATE", true, "真实标签重复扫码被拦截，返回已有任务：" + t.getTaskNo() + "，原始扫码=" + req.scanCode, req.operator, req.deviceNo, firstNonBlank(label.getSendStationAddress(), label.getDeliveryAddress(), label.getStationCode()), label.getMaterialCode());
+            auditService.scan(resolvedLabelCode, null, "DIRECT_PULL_DUPLICATE", true, "真实标签重复扫码被拦截，返回已有任务：" + t.getTaskNo() + "，原始扫码=" + req.scanCode, req.operator, req.deviceNo, firstNonBlank(label.getSendStationAddress(), label.getDeliveryAddress(), label.getStationCode()), label.getMaterialCode(), t.getFactory(), t.getDeliveryArea());
             return duplicateResult(label, t, "该真实标签已经存在仓库未出发的补货任务，系统已阻止重复生成：" + t.getTaskNo());
         }
 
@@ -428,7 +435,7 @@ public class ScanService {
         }
         taskRepository.save(task);
 
-        auditService.scan(resolvedLabelCode, null, "DIRECT_PULL", true, "真实工厂标签扫码成功，生成补货任务：" + task.getTaskNo() + "，原始扫码=" + req.scanCode, req.operator, req.deviceNo, firstNonBlank(label.getSendStationAddress(), label.getDeliveryAddress(), label.getStationCode()), label.getMaterialCode());
+        auditService.scan(resolvedLabelCode, null, "DIRECT_PULL", true, "真实工厂标签扫码成功，生成补货任务：" + task.getTaskNo() + "，原始扫码=" + req.scanCode, req.operator, req.deviceNo, firstNonBlank(label.getSendStationAddress(), label.getDeliveryAddress(), label.getStationCode()), label.getMaterialCode(), task.getFactory(), task.getDeliveryArea());
         auditService.task(task.getTaskNo(), "CREATE_BY_FACTORY_LABEL", null, task.getStatus().name(), req.operator, "由真实工厂标签直接扫码生成，不执行 A/B 双盒切换");
         pushService.publish("tasks", task);
 
@@ -459,7 +466,9 @@ public class ScanService {
         MaterialMappingEntity mapping = chooseMapping(materialCode, stationCode, spare);
         Optional<StationMaterialEntity> station = resolveStation(materialCode, stationCode);
 
-        List<ReplenishmentTaskEntity> existing = taskRepository.findByWarehouseCodeAndStatusIn(mapping.getWarehouseCode(), blockingStatuses());
+        requireMappingScope(mapping);
+        List<ReplenishmentTaskEntity> existing = taskRepository.findByFactoryAndDeliveryAreaAndWarehouseCodeAndStatusIn(
+                mapping.getFactory().trim(), mapping.getDeliveryArea().trim(), mapping.getWarehouseCode(), blockingStatuses());
         // 时间窗去重：只拦最近 N 分钟内创建的同仓库代号任务（挡住手抖/设备重发）；
         // 超过时间窗的旧任务视为“上一轮用料”，同一个盒子再次用空可正常生成新任务。
         long windowMinutes = dedupWindowMinutes();
@@ -469,13 +478,13 @@ public class ScanService {
                 .toList();
         if (!recent.isEmpty() && !Boolean.TRUE.equals(req.allowRepeat)) {
             ReplenishmentTaskEntity old = latest(recent);
-            auditService.scan(materialCode, null, "MATERIAL_PULL_DUPLICATE", true, "仓库代号" + mapping.getWarehouseCode() + "在" + windowMinutes + "分钟内已有补货任务，拦截重复：" + old.getTaskNo(), req.operator, req.deviceNo, firstNonBlank(old.getSendStationAddress(), old.getDeliveryAddress(), old.getStationCode()), materialCode);
+            auditService.scan(materialCode, null, "MATERIAL_PULL_DUPLICATE", true, "仓库代号" + mapping.getWarehouseCode() + "在" + windowMinutes + "分钟内已有补货任务，拦截重复：" + old.getTaskNo(), req.operator, req.deviceNo, firstNonBlank(old.getSendStationAddress(), old.getDeliveryAddress(), old.getStationCode()), materialCode, old.getFactory(), old.getDeliveryArea());
             return duplicateMaterialResult(old, materialCode, "该仓库代号在" + windowMinutes + "分钟内已生成补货任务，系统已阻止重复申请：" + old.getTaskNo() + "（如确需再次申请，请使用强制申请）");
         }
 
         ReplenishmentTaskEntity task = createTaskFromMapping(req, mapping, station.orElse(null), stationCode, spare);
         taskRepository.save(task);
-        auditService.scan(materialCode, null, spare ? "MATERIAL_PULL_URGENT" : "MATERIAL_PULL", true, "现场扫码成功，生成" + (spare ? "紧急" : "正常") + "补货任务：" + task.getTaskNo() + "，仓库代号=" + task.getWarehouseCode(), req.operator, req.deviceNo, task.getSendStationAddress(), task.getMaterialCode());
+        auditService.scan(materialCode, null, spare ? "MATERIAL_PULL_URGENT" : "MATERIAL_PULL", true, "现场扫码成功，生成" + (spare ? "紧急" : "正常") + "补货任务：" + task.getTaskNo() + "，仓库代号=" + task.getWarehouseCode(), req.operator, req.deviceNo, task.getSendStationAddress(), task.getMaterialCode(), task.getFactory(), task.getDeliveryArea());
         auditService.task(task.getTaskNo(), spare ? "CREATE_BY_MATERIAL_URGENT" : "CREATE_BY_MATERIAL", null, task.getStatus().name(), req.operator, "由工位二维码(物料号+工位+" + (spare ? "备用" : "使用") + ")生成");
         pushService.publish("tasks", task);
 
@@ -514,7 +523,7 @@ public class ScanService {
      * 两个条件都满足才算匹配成功；之后再按用途(使用/备用→NORMAL/URGENT)在结果中择一。
      * 兼容二维码只有物料号、未扫出工位地址的情况：此时退回仅条件1匹配。
      */
-    private MaterialMappingEntity chooseMapping(String materialCode, String stationAddress, boolean spare) {
+    MaterialMappingEntity chooseMapping(String materialCode, String stationAddress, boolean spare) {
         String deliveryType = spare ? "URGENT" : "NORMAL";
         // 条件1：物料号匹配，取该物料的全部映射候选。
         List<MaterialMappingEntity> candidates = mappingRepository.findByLineMaterialCodeAndEnabledTrueOrderByMappingOrderAscIdAsc(materialCode);
@@ -561,13 +570,19 @@ public class ScanService {
         }
 
         // 两个条件已满足，再按用途择一：优先取用途匹配的记录。
-        Optional<MaterialMappingEntity> typed = candidates.stream()
+        List<MaterialMappingEntity> typed = candidates.stream()
                 .filter(m -> deliveryType.equalsIgnoreCase(m.getDeliveryType()))
-                .findFirst();
-        if (typed.isPresent()) return typed.get();
-        // 未按用途区分时：备用取第2条(若有)，否则取第1条。
-        if (spare && candidates.size() >= 2) return candidates.get(1);
-        return candidates.get(0);
+                .toList();
+        if (typed.size() == 1) return typed.get(0);
+        if (typed.size() > 1) {
+            throw new BusinessException(ErrorCode.DATA_DIRTY,
+                    "物料号 " + materialCode + "、工位 " + firstNonBlank(stationAddress, "未提供")
+                            + "、用途 " + deliveryType + " 对应多条料号映射，无法唯一确定归属，已拒绝建单");
+        }
+        if (candidates.size() == 1) return candidates.get(0);
+        throw new BusinessException(ErrorCode.DATA_DIRTY,
+                "物料号 " + materialCode + "、工位 " + firstNonBlank(stationAddress, "未提供")
+                        + " 对应多条料号映射且没有唯一的 " + deliveryType + " 用途记录，已拒绝建单");
     }
 
     private Optional<StationMaterialEntity> resolveStation(String materialCode, String stationCode) {
@@ -579,6 +594,8 @@ public class ScanService {
     }
 
     private ReplenishmentTaskEntity createTaskFromMapping(ScanDtos.ScanRequest req, MaterialMappingEntity mapping, StationMaterialEntity station, String scannedStationCode, boolean spare) {
+        requireMappingScope(mapping);
+        dataScopeService.requireAccessFactoryArea(mapping.getFactory(), mapping.getDeliveryArea());
         ReplenishmentTaskEntity task = new ReplenishmentTaskEntity();
         task.setTaskNo(IdGenerator.idMinute("RP"));
         task.setFactory(mapping.getFactory());
@@ -594,7 +611,7 @@ public class ScanService {
         task.setWarehouseMaterialCode(firstNonBlank(mapping.getWarehouseMaterialCode(), mapping.getWarehouseCode()));
         task.setRequestQty(resolveRequestQty(req, mapping.getQuantity()));
         task.setRequestUnit(resolveRequestUnit(req));
-        task.setDeliveryArea(firstNonBlank(mapping.getDeliveryArea(), "1"));
+        task.setDeliveryArea(mapping.getDeliveryArea().trim());
         task.setStatus(TaskStatus.CREATED);
         task.setPriority(spare ? PriorityLevel.URGENT : PriorityLevel.NORMAL);
         task.setCreatedBy(req.operator);
@@ -657,9 +674,12 @@ public class ScanService {
     }
 
     private ReplenishmentTaskEntity createTaskFromLabel(ScanDtos.ScanRequest req, LabelEntity label) {
+        MappingScope scope = snapshotOrMappingScope(label.getFactory(), label.getDeliveryArea(), label.getWarehouseCode(), label.getMaterialCode());
+        dataScopeService.requireAccessFactoryArea(scope.factory(), scope.deliveryArea());
         ReplenishmentTaskEntity task = new ReplenishmentTaskEntity();
         task.setTaskNo(IdGenerator.idMinute("RP"));
-        task.setFactory(resolveMappingFactory(label.getWarehouseCode(), label.getMaterialCode()));
+        task.setFactory(scope.factory());
+        task.setDeliveryArea(scope.deliveryArea());
         task.setSourceLabelCode(label.getLabelCode());
         task.setBarcodeValue(firstNonBlank(label.getBarcodeValue(), label.getPrimaryScanValue()));
         task.setWarehouseCode(label.getWarehouseCode());
@@ -696,9 +716,12 @@ public class ScanService {
     }
 
     private ReplenishmentTaskEntity createTask(ScanDtos.ScanRequest req, BoxEntity box) {
+        MappingScope scope = snapshotOrMappingScope(box.getFactory(), box.getDeliveryArea(), box.getWarehouseCode(), box.getMaterialCode());
+        dataScopeService.requireAccessFactoryArea(scope.factory(), scope.deliveryArea());
         ReplenishmentTaskEntity task = new ReplenishmentTaskEntity();
         task.setTaskNo(IdGenerator.idMinute("RP"));
-        task.setFactory(resolveMappingFactory(box.getWarehouseCode(), box.getMaterialCode()));
+        task.setFactory(scope.factory());
+        task.setDeliveryArea(scope.deliveryArea());
         task.setSourceLabelCode(box.getLabelCode());
         task.setBarcodeValue(box.getBarcodeValue());
         task.setWarehouseCode(box.getWarehouseCode());
@@ -733,17 +756,56 @@ public class ScanService {
         return task;
     }
 
-    private String resolveMappingFactory(String warehouseCode, String materialCode) {
+    MappingScope resolveMappingScope(String warehouseCode, String materialCode) {
         String warehouse = firstNonBlank(warehouseCode);
+        List<MaterialMappingEntity> candidates = List.of();
         if (warehouse != null) {
-            Optional<MaterialMappingEntity> exact = mappingRepository.findByWarehouseCodeAndEnabledTrue(warehouse);
-            if (exact.isPresent()) return exact.get().getFactory();
+            candidates = mappingRepository.findByWarehouseCodeInAndEnabledTrue(List.of(warehouse));
         }
-        String material = firstNonBlank(materialCode);
-        if (material == null) return null;
-        return mappingRepository.findByLineMaterialCodeAndEnabledTrueOrderByMappingOrderAscIdAsc(material).stream()
-                .findFirst().map(MaterialMappingEntity::getFactory).orElse(null);
+        if (candidates.isEmpty()) {
+            String material = firstNonBlank(materialCode);
+            if (material != null) {
+                candidates = mappingRepository.findByLineMaterialCodeAndEnabledTrueOrderByMappingOrderAscIdAsc(material);
+            }
+        }
+        if (candidates.isEmpty()) {
+            throw new BusinessException(ErrorCode.DATA_DIRTY,
+                    "无法从料号映射确定工厂和配送区域：warehouseCode=" + warehouseCode + "，materialCode=" + materialCode);
+        }
+        List<MappingScope> scopes = candidates.stream()
+                .map(this::mappingScope)
+                .distinct()
+                .toList();
+        if (scopes.size() != 1) {
+            throw new BusinessException(ErrorCode.DATA_DIRTY,
+                    "料号映射存在多个工厂或配送区域候选，无法唯一确定归属：warehouseCode=" + warehouseCode
+                            + "，materialCode=" + materialCode);
+        }
+        return scopes.get(0);
     }
+
+    MappingScope snapshotOrMappingScope(String factory, String deliveryArea, String warehouseCode, String materialCode) {
+        String snapshotFactory = firstNonBlank(factory);
+        String snapshotArea = firstNonBlank(deliveryArea);
+        if (snapshotFactory != null && snapshotArea != null) return new MappingScope(snapshotFactory, snapshotArea);
+        return resolveMappingScope(warehouseCode, materialCode);
+    }
+
+    private void requireMappingScope(MaterialMappingEntity mapping) {
+        mappingScope(mapping);
+    }
+
+    private MappingScope mappingScope(MaterialMappingEntity mapping) {
+        String factory = firstNonBlank(mapping.getFactory());
+        String deliveryArea = firstNonBlank(mapping.getDeliveryArea());
+        if (factory == null || deliveryArea == null) {
+            throw new BusinessException(ErrorCode.DATA_DIRTY,
+                    "料号映射缺少工厂或配送区域，禁止创建任务：mappingId=" + mapping.getId());
+        }
+        return new MappingScope(factory, deliveryArea);
+    }
+
+    record MappingScope(String factory, String deliveryArea) {}
 
     private ScanDtos.ScanResult duplicateResult(BoxEntity box, ReplenishmentTaskEntity task, String message) {
         ScanDtos.ScanResult r = new ScanDtos.ScanResult();
@@ -955,6 +1017,9 @@ public class ScanService {
         try {
             LabelEntity label = labelResolverService.resolve(scanCode);
             validateLabelReadyForPull(label);
+            MappingScope previewScope = snapshotOrMappingScope(label.getFactory(), label.getDeliveryArea(),
+                    label.getWarehouseCode(), label.getMaterialCode());
+            dataScopeService.requireAccessFactoryArea(previewScope.factory(), previewScope.deliveryArea());
             BoxEntity box = boxRepository.findByLabelCode(label.getLabelCode()).orElse(null);
 
             BigDecimal defaultQty = box != null

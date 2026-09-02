@@ -25,6 +25,7 @@ public class PrintJobService {
     private final AppProperties properties;
     private final ExternalHttpClient externalHttpClient;
     private final SystemConfigRepository systemConfigRepository;
+    private final DataScopeService dataScopeService;
 
     // 标签排版参数键：dpi 与物理尺寸(mm)。换打印机/换标签只需在“系统参数”改这三项，无需改代码。
     static final String CFG_DPI = "print.label.dpi";
@@ -35,14 +36,16 @@ public class PrintJobService {
     private static final double REF_H = 400.0;
 
     public List<PrintJobEntity> list(String status) {
-        if (status == null || status.isBlank()) return printJobRepository.findTop1000ByOrderByCreatedAtDesc();
-        PrintJobStatus s;
-        try {
-            s = PrintJobStatus.valueOf(status.trim().toUpperCase(Locale.ROOT));
-        } catch (IllegalArgumentException e) {
-            throw new BusinessException(ErrorCode.PARAM_ERROR, "未知打印状态：" + status);
+        PrintJobStatus safeStatus = parseStatus(status);
+        if (dataScopeService.isGlobalAdmin()) {
+            return safeStatus == null ? printJobRepository.findTop1000ByOrderByCreatedAtDesc()
+                    : printJobRepository.findTop1000ByStatusOrderByCreatedAtDesc(safeStatus);
         }
-        return printJobRepository.findTop1000ByStatusOrderByCreatedAtDesc(s);
+        String factory = dataScopeService.currentFactory();
+        List<String> areas = dataScopeService.currentDeliveryAreas();
+        return (areas.isEmpty()
+                ? printJobRepository.findFactoryWideIncludingTaskFallback(factory, safeStatus, "", PageRequest.of(0, 1000))
+                : printJobRepository.findScopedIncludingTaskFallback(factory, areas, safeStatus, "", PageRequest.of(0, 1000))).getContent();
     }
 
     public Map<String, Object> page(String status, String channel, int page, int size) {
@@ -52,7 +55,13 @@ public class PrintJobService {
         PrintJobStatus safeStatus = parseStatus(status);
         PageRequest pageable = PageRequest.of(safePage, safeSize, Sort.by(Sort.Direction.DESC, "createdAt"));
         Page<PrintJobEntity> result;
-        if (safeStatus != null && !safeChannel.isBlank()) {
+        if (!dataScopeService.isGlobalAdmin()) {
+            String factory = dataScopeService.currentFactory();
+            List<String> areas = dataScopeService.currentDeliveryAreas();
+            result = areas.isEmpty()
+                    ? printJobRepository.findFactoryWideIncludingTaskFallback(factory, safeStatus, safeChannel, pageable)
+                    : printJobRepository.findScopedIncludingTaskFallback(factory, areas, safeStatus, safeChannel, pageable);
+        } else if (safeStatus != null && !safeChannel.isBlank()) {
             result = printJobRepository.findByStatusAndPrintChannelIgnoreCaseOrderByCreatedAtDesc(safeStatus, safeChannel, pageable);
         } else if (safeStatus != null) {
             result = printJobRepository.findByStatusOrderByCreatedAtDesc(safeStatus, pageable);
@@ -84,6 +93,7 @@ public class PrintJobService {
         if (request.taskNo == null || request.taskNo.isBlank()) throw new BusinessException(ErrorCode.PARAM_ERROR, "任务号不能为空");
         ReplenishmentTaskEntity task = taskRepository.findByTaskNo(request.taskNo)
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "任务不存在：" + request.taskNo));
+        dataScopeService.requireAccessFactoryArea(task.getFactory(), task.getDeliveryArea());
         String operator = OperatorResolver.currentOperator();
         String channel = normalizeChannel(request.printChannel);
         PrintJobEntity job = buildJob(task, request.printType, request.printerName, operator);
@@ -207,6 +217,7 @@ public class PrintJobService {
         job.setPrintJobNo(IdGenerator.id("PRN"));
         job.setTaskNo(task.getTaskNo());
         job.setFactory(task.getFactory());
+        job.setDeliveryArea(task.getDeliveryArea());
         job.setLabelCode(task.getSourceLabelCode());
         job.setPrintType(firstNonBlank(printType, properties.getDefaultPrintType(), "OUTBOUND_LABEL"));
         job.setPrinterName(firstNonBlank(printerName, properties.getDefaultPrinterName()));

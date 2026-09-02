@@ -19,6 +19,8 @@ public class AgvJobEntity {
     @Version private Long version;
     private String agvJobNo;
     private String taskNo;
+    @Transient private String factory;
+    @Transient private String deliveryArea;
     private String jobType;
     private String containerNo;
     private String fromLocation;

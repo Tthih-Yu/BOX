@@ -33,6 +33,7 @@ public class BasicDataController {
     private final SystemConfigRepository configRepository;
     private final BasicDataService service;
     private final LogExportService logExportService;
+    private final com.example.materialpull.service.DataScopeService dataScopeService;
 
     private static final List<String> MAPPING_EXPORT_COLUMNS = List.of(
             "mappingOrder", "lineMaterialCode", "warehouseCode", "boxSize", "quantity",
@@ -56,11 +57,10 @@ public class BasicDataController {
     @GetMapping("/mappings")
     @RequireRoles({UserRole.SUB_ADMIN, UserRole.PLANNER, UserRole.WAREHOUSE, UserRole.VIEWER})
     public ApiResponse<?> mappings(@RequestParam(required = false) Integer page, @RequestParam(required = false) Integer size, @RequestParam(defaultValue = "") String keyword) {
-        if (page == null && size == null) return ApiResponse.ok(mappingRepository.findAllByOrderByLineMaterialCodeAscMappingOrderAscIdAsc());
+        if (page == null && size == null) return ApiResponse.ok(service.mappings());
         int safePage = Math.max(page == null ? 0 : page, 0);
         int safeSize = Math.min(Math.max(size == null ? 50 : size, 10), 200);
-        String query = keyword == null ? "" : keyword.trim();
-        var result = mappingRepository.findByLineMaterialCodeContainingIgnoreCaseOrWarehouseCodeContainingIgnoreCaseOrWarehouseMaterialCodeContainingIgnoreCaseOrDeliveryAddressContainingIgnoreCaseOrderByLineMaterialCodeAscMappingOrderAscIdAsc(query, query, query, query, PageRequest.of(safePage, safeSize));
+        var result = service.mappings(keyword, PageRequest.of(safePage, safeSize));
         return ApiResponse.ok(Map.of("items", result.getContent(), "total", result.getTotalElements()));
     }
 
@@ -113,11 +113,11 @@ public class BasicDataController {
 
     @GetMapping("/boxes")
     @RequireRoles({UserRole.PLANNER, UserRole.WAREHOUSE, UserRole.LINE, UserRole.VIEWER})
-    public ApiResponse<List<BoxEntity>> boxes() { return ApiResponse.ok(boxRepository.findAll(topPage()).getContent()); }
+    public ApiResponse<List<BoxEntity>> boxes() { return ApiResponse.ok(service.boxes()); }
 
     @GetMapping("/inventory")
     @RequireRoles({UserRole.PLANNER, UserRole.WAREHOUSE, UserRole.VIEWER})
-    public ApiResponse<List<InventoryEntity>> inventory() { return ApiResponse.ok(inventoryRepository.findAll(topPage()).getContent()); }
+    public ApiResponse<List<InventoryEntity>> inventory() { return ApiResponse.ok(service.inventory()); }
 
     @PostMapping("/inventory")
     @RequireRoles({UserRole.WAREHOUSE})
@@ -128,20 +128,27 @@ public class BasicDataController {
     public ApiResponse<Void> delInventory(@PathVariable Long id) { service.deleteInventory(id); return ApiResponse.ok(null); }
 
     @GetMapping("/users")
-    @RequireRoles({UserRole.ADMIN})
+    @RequireRoles({UserRole.ADMIN, UserRole.SUB_ADMIN})
     public ApiResponse<List<BasicDataDtos.UserResponse>> users() { return ApiResponse.ok(service.users()); }
 
     @PostMapping("/users")
-    @RequireRoles({UserRole.ADMIN})
+    @RequireRoles({UserRole.ADMIN, UserRole.SUB_ADMIN})
     public ApiResponse<BasicDataDtos.UserResponse> saveUser(@RequestBody BasicDataDtos.UserRequest req) { return ApiResponse.ok(service.saveUser(req)); }
 
     @DeleteMapping("/users/{id}")
-    @RequireRoles({UserRole.ADMIN})
+    @RequireRoles({UserRole.ADMIN, UserRole.SUB_ADMIN})
     public ApiResponse<Void> delUser(@PathVariable Long id) { service.deleteUser(id); return ApiResponse.ok(null); }
+
+    @GetMapping("/users/scope-options")
+    @RequireRoles({UserRole.ADMIN, UserRole.SUB_ADMIN})
+    public ApiResponse<Map<String, Object>> userScopeOptions() { return ApiResponse.ok(service.userScopeOptions()); }
 
     @GetMapping("/configs")
     @RequireRoles({UserRole.ADMIN})
-    public ApiResponse<List<SystemConfigEntity>> configs() { return ApiResponse.ok(configRepository.findAll(topPage()).getContent()); }
+    public ApiResponse<List<SystemConfigEntity>> configs() {
+        dataScopeService.requireGlobalAdmin();
+        return ApiResponse.ok(configRepository.findAll(topPage()).getContent());
+    }
 
     @PostMapping("/configs")
     @RequireRoles({UserRole.ADMIN})

@@ -259,8 +259,14 @@ public class ImportService {
             try {
                 basicDataService.upsertMappingsByWarehouseCode(pending.stream().map(PendingMapping::entity).toList());
                 success += pending.size();
+            } catch (BusinessException batchFailure) {
+                // DataScope、数据冲突及业务校验失败必须保持整批原子性，禁止退化成逐行写入后部分成功。
+                // 每行登记相同错误，便于用户修正文件后整批重试。
+                for (PendingMapping item : pending) {
+                    addError(item.cells(), item.rowIndex(), batchFailure);
+                }
             } catch (Exception batchFailure) {
-                // 批量写入失败无法定位到具体行，退化为逐行 upsert，把错误准确归到出错的那一行。
+                // 非业务型数据库异常才逐行定位坏行；业务拒绝绝不能走此分支。
                 for (PendingMapping item : pending) {
                     try {
                         basicDataService.upsertMappingsByWarehouseCode(List.of(item.entity()));
@@ -459,7 +465,7 @@ public class ImportService {
         m.setWarehouseLocation(r.str("warehouseLocation"));
         m.setDeliveryAddress(r.str("deliveryAddress"));
         m.setRemark(r.str("remark"));
-        m.setDeliveryArea(r.str("deliveryArea").isBlank() ? "1" : r.str("deliveryArea"));
+        m.setDeliveryArea(r.str("deliveryArea"));
         m.setSingleUnitUsage(r.numOrNull("singleUnitUsage", "单根用量"));
         basicDataService.normalizeMapping(m);
         return m;

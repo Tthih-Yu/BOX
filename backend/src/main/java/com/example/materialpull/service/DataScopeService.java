@@ -43,8 +43,10 @@ public class DataScopeService {
      */
     public boolean isGlobalAdmin() {
         com.example.materialpull.security.SessionUser user = getCurrentUser();
-        // ADMIN 角色且 factory 为 NULL 表示全局管理员
-        return UserRole.ADMIN == user.getRole() && user.getFactory() == null;
+        // 全局 ADMIN 必须同时不绑定工厂和配送区域；畸形 Session 一律 Fail Closed。
+        return UserRole.ADMIN == user.getRole()
+                && (user.getFactory() == null || user.getFactory().isBlank())
+                && (user.getDeliveryAreas() == null || user.getDeliveryAreas().isEmpty());
     }
 
     /**
@@ -71,10 +73,8 @@ public class DataScopeService {
             return List.of();
         }
         com.example.materialpull.security.SessionUser user = getCurrentUser();
-        if (user.getDeliveryAreas() == null || user.getDeliveryAreas().isEmpty()) {
-            throw new BusinessException(ErrorCode.FORBIDDEN, "账号未配置配送区域");
-        }
-        return user.getDeliveryAreas();
+        // 配送区域为空表示当前工厂全部区域；工厂本身仍必须配置。
+        return user.getDeliveryAreas() == null ? List.of() : user.getDeliveryAreas();
     }
 
     /**
@@ -85,6 +85,12 @@ public class DataScopeService {
      * @return true 表示可以访问
      */
     public boolean canAccessFactoryArea(String factory, String deliveryArea) {
+        // 现场设备不携带账号 DataScope；仅 /scan/* 认证链可获得该标记，
+        // 且服务端仍要求从 Label/Box/Mapping 唯一解析出完整归属。
+        if (RequestContext.isTrustedScanner()) {
+            return factory != null && !factory.isBlank()
+                    && deliveryArea != null && !deliveryArea.isBlank();
+        }
         if (isGlobalAdmin()) {
             return true;
         }
@@ -102,6 +108,9 @@ public class DataScopeService {
         if (!userFactory.equalsIgnoreCase(factory.trim())) {
             return false;
         }
+
+        // 配送区域为空表示当前工厂全部区域
+        if (userAreas.isEmpty()) return true;
 
         // 配送区域必须在用户的范围内
         String normalizedArea = deliveryArea.trim();
@@ -141,6 +150,15 @@ public class DataScopeService {
         return true;
     }
 
+    /** 要求当前账号为不绑定工厂的全局 ADMIN。用于全库维护、无范围系统日志等入口。 */
+    public void requireGlobalAdmin() {
+        if (!isGlobalAdmin()) {
+            log.warn("全局管理入口访问被拒绝: user={}, role={}, factory={}",
+                    RequestContext.getUsername(), RequestContext.getRole(), RequestContext.getFactory());
+            throw new BusinessException(ErrorCode.FORBIDDEN, "该操作仅限全局管理员");
+        }
+    }
+
     /**
      * 要求当前用户可以访问指定的工厂+区域数据，否则抛出异常
      * 
@@ -151,7 +169,7 @@ public class DataScopeService {
     public void requireAccessFactoryArea(String factory, String deliveryArea) {
         if (!canAccessFactoryArea(factory, deliveryArea)) {
             log.warn("越权访问被拒绝 [FACTORY_AREA]: factory={}, deliveryArea={}, user={}",
-                    factory, deliveryArea, RequestContext.getCurrentUsername());
+                    factory, deliveryArea, RequestContext.getUsername());
             throw new BusinessException(ErrorCode.FORBIDDEN, "无权访问该数据");
         }
     }
@@ -165,7 +183,7 @@ public class DataScopeService {
     public void requireAccessFactoryOnly(String factory) {
         if (!canAccessFactoryOnly(factory)) {
             log.warn("越权访问被拒绝 [FACTORY_ONLY]: factory={}, user={}",
-                    factory, RequestContext.getCurrentUsername());
+                    factory, RequestContext.getUsername());
             throw new BusinessException(ErrorCode.FORBIDDEN, "无权访问该数据");
         }
     }
@@ -182,7 +200,7 @@ public class DataScopeService {
             return true;
         }
         // 对于 FACTORY_AREA 类型，deliveryArea 也必须存在
-        if (deliveryArea != null && deliveryArea.isBlank()) {
+        if (deliveryArea == null || deliveryArea.isBlank()) {
             return true;
         }
         return false;
@@ -210,11 +228,7 @@ public class DataScopeService {
         for (T item : items) {
             String factory = factoryExtractor.apply(item);
             String area = areaExtractor.apply(item);
-            if (area != null) {
-                requireAccessFactoryArea(factory, area);
-            } else {
-                requireAccessFactoryOnly(factory);
-            }
+            requireAccessFactoryArea(factory, area);
         }
     }
 }

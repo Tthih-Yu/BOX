@@ -89,7 +89,7 @@ public class WeeklyPlanController {
                                                  @RequestParam(defaultValue = "50") int size) {
         PageRequest pageable = PageRequest.of(Math.max(page, 0), Math.min(Math.max(size, 1), 500),
                 Sort.by(Sort.Direction.ASC, "productCode"));
-        Page<WeeklyPlanRowEntity> result = rowRepository.findByBatchNo(batchNo, pageable);
+        Page<WeeklyPlanRowEntity> result = service.rows(batchNo, pageable);
         return ApiResponse.ok(Map.of("total", result.getTotalElements(), "rows", result.getContent()));
     }
 

@@ -9,12 +9,15 @@ import java.time.LocalDateTime;
 @Entity
 @Table(name = "t_inventory", indexes = {
         @Index(name = "idx_inv_wh_material", columnList = "warehouseMaterialCode"),
-        @Index(name = "idx_inv_location", columnList = "warehouseCode,locationCode")
+        @Index(name = "idx_inv_location", columnList = "warehouseCode,locationCode"),
+        @Index(name = "idx_inventory_scope", columnList = "factory,deliveryArea")
 })
 public class InventoryEntity {
     @Id @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
     @Version private Long version;
+    private String factory;
+    private String deliveryArea;
     private String warehouseCode;
     private String locationCode;
     private String warehouseMaterialCode;

@@ -24,6 +24,7 @@ import java.util.*;
 @RequiredArgsConstructor
 public class MenuPermissionService {
     private final SystemConfigRepository configRepository;
+    private final DataScopeService dataScopeService;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     static final String KEY = "menu.role-permissions";
@@ -35,6 +36,7 @@ public class MenuPermissionService {
 
     /** 读取全部角色的菜单配置(供管理员编辑)。缺省时给只读用户填入默认菜单。 */
     public Map<String, List<String>> readAll() {
+        dataScopeService.requireGlobalAdmin();
         Map<String, List<String>> map = parse(rawValue());
         if (!map.containsKey(UserRole.VIEWER.name())) {
             map.put(UserRole.VIEWER.name(), new ArrayList<>(DEFAULT_VIEWER_MENUS));
@@ -54,6 +56,7 @@ public class MenuPermissionService {
 
     @Transactional
     public void saveAll(Map<String, List<String>> permissions) {
+        dataScopeService.requireGlobalAdmin();
         Map<String, List<String>> normalized = new LinkedHashMap<>();
         if (permissions != null) {
             for (Map.Entry<String, List<String>> e : permissions.entrySet()) {

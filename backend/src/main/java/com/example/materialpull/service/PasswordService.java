@@ -7,16 +7,13 @@ import org.springframework.stereotype.Service;
 
 @Service
 public class PasswordService {
-    public static final int MIN_LENGTH = 10;
+    public static final int MIN_LENGTH = 6;
     private final BCryptPasswordEncoder encoder = new BCryptPasswordEncoder(12);
 
     public void validateNewPassword(String rawPassword) {
         if (rawPassword == null || rawPassword.isBlank()) throw new BusinessException(ErrorCode.PARAM_ERROR, "密码不能为空");
         String value = rawPassword.trim();
         if (value.length() < MIN_LENGTH) throw new BusinessException(ErrorCode.PARAM_ERROR, "密码长度不能少于 " + MIN_LENGTH + " 位");
-        boolean hasLetter = value.chars().anyMatch(Character::isLetter);
-        boolean hasDigit = value.chars().anyMatch(Character::isDigit);
-        if (!hasLetter || !hasDigit) throw new BusinessException(ErrorCode.PARAM_ERROR, "密码必须同时包含字母和数字");
     }
 
     public String hash(String rawPassword) {

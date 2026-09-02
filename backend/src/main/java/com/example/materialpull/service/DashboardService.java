@@ -21,39 +21,54 @@ public class DashboardService {
     private final ReplenishmentTaskRepository taskRepository;
     private final ScanLogRepository scanLogRepository;
     private final InventoryRepository inventoryRepository;
+    private final DataScopeService dataScopeService;
 
     public DashboardDtos.Dashboard dashboard(String timeRange) {
         LocalDateTime startTime = calculateStartTime(timeRange);
         
-        List<InventoryEntity> inventory = inventoryRepository.findAll();
+        boolean global = dataScopeService.isGlobalAdmin();
+        String factory = global ? null : dataScopeService.currentFactory();
+        List<String> areas = global ? List.of() : dataScopeService.currentDeliveryAreas();
+        List<InventoryEntity> shortage = global
+                ? inventoryRepository.findLowStock()
+                : inventoryRepository.findLowStockScoped(factory, areas);
+        List<ReplenishmentTaskEntity> activeTasks = global
+                ? taskRepository.findByStatusIn(activeStatuses())
+                : taskRepository.findByFactoryIgnoreCaseAndDeliveryAreaInAndStatusIn(factory, areas, activeStatuses());
         DashboardDtos.Summary s = new DashboardDtos.Summary();
         s.materials = materialRepository.count();
         s.stationMaterials = stationMaterialRepository.count();
-        s.boxes = boxRepository.count();
-        s.labels = labelRepository.count();
-        s.tasksCreated = taskRepository.countByStatus(TaskStatus.CREATED);
-        s.tasksProcessing = taskRepository.findByStatusIn(List.of(TaskStatus.ACCEPTED,TaskStatus.PICKING,TaskStatus.PICKED,TaskStatus.DELIVERING,TaskStatus.ARRIVED)).size();
-        s.tasksException = taskRepository.countByStatus(TaskStatus.EXCEPTION);
-        s.boxesAbnormal = boxRepository.countByStatus(BoxStatus.ABNORMAL);
-        s.lowStockMaterials = BigDecimal.valueOf(inventory.stream().filter(this::isLowStock).count());
+        s.boxes = global ? boxRepository.count() : boxRepository.countByFactoryIgnoreCaseAndDeliveryAreaIn(factory, areas);
+        s.labels = global ? labelRepository.count() : labelRepository.countByFactoryIgnoreCaseAndDeliveryAreaIn(factory, areas);
+        s.tasksCreated = countTasks(TaskStatus.CREATED, global, factory, areas);
+        s.tasksProcessing = activeTasks.stream().filter(t -> List.of(TaskStatus.ACCEPTED, TaskStatus.PICKING,
+                TaskStatus.PICKED, TaskStatus.DELIVERING, TaskStatus.ARRIVED).contains(t.getStatus())).count();
+        s.tasksException = countTasks(TaskStatus.EXCEPTION, global, factory, areas);
+        s.boxesAbnormal = global ? boxRepository.countByStatus(BoxStatus.ABNORMAL)
+                : boxRepository.countByFactoryIgnoreCaseAndDeliveryAreaInAndStatus(factory, areas, BoxStatus.ABNORMAL);
+        s.lowStockMaterials = BigDecimal.valueOf(shortage.size());
 
-        List<TaskStatus> active = List.of(TaskStatus.CREATED, TaskStatus.ACCEPTED, TaskStatus.PICKING, TaskStatus.PICKED, TaskStatus.DELIVERING, TaskStatus.ARRIVED, TaskStatus.EXCEPTION);
-        List<ReplenishmentTaskEntity> activeTasks = taskRepository.findByStatusIn(active);
         LocalDateTime now = LocalDateTime.now();
         List<ReplenishmentTaskEntity> timeout = activeTasks.stream().filter(t -> t.getDeadlineAt() != null && t.getDeadlineAt().isBefore(now)).sorted(taskOrder()).limit(50).toList();
         List<ReplenishmentTaskEntity> urgent = activeTasks.stream().filter(t -> t.getPriority() == PriorityLevel.URGENT).sorted(taskOrder()).limit(50).toList();
         List<ReplenishmentTaskEntity> normal = activeTasks.stream().filter(t -> t.getPriority() != PriorityLevel.URGENT && !(t.getDeadlineAt() != null && t.getDeadlineAt().isBefore(now))).sorted(taskOrder()).limit(50).toList();
-        List<InventoryEntity> shortage = inventory.stream().filter(this::isLowStock).limit(50).toList();
+        shortage = shortage.stream().limit(50).toList();
         s.urgentTasks = urgent.size();
         s.timeoutTasks = timeout.size();
         s.shortageItems = shortage.size();
 
         DashboardDtos.Dashboard d = new DashboardDtos.Dashboard();
         d.summary = s;
-        d.taskStatus = Arrays.stream(TaskStatus.values()).map(x -> new DashboardDtos.ChartItem(x.label, countTasksByStatusAndTime(x, startTime))).toList();
-        d.boxStatus = Arrays.stream(BoxStatus.values()).map(x -> new DashboardDtos.ChartItem(x.label, boxRepository.countByStatus(x))).toList();
-        d.latestTasks = taskRepository.findTop20ByOrderByCreatedAtDesc();
-        d.latestScans = scanLogRepository.findTop1000ByOrderByScanAtDesc().stream().limit(20).toList();
+        d.taskStatus = Arrays.stream(TaskStatus.values()).map(x -> new DashboardDtos.ChartItem(x.label,
+                countTasksByStatusAndTime(x, startTime, global, factory, areas))).toList();
+        d.boxStatus = Arrays.stream(BoxStatus.values()).map(x -> new DashboardDtos.ChartItem(x.label,
+                global ? boxRepository.countByStatus(x)
+                        : boxRepository.countByFactoryIgnoreCaseAndDeliveryAreaInAndStatus(factory, areas, x))).toList();
+        d.latestTasks = global ? taskRepository.findTop20ByOrderByCreatedAtDesc()
+                : taskRepository.findTop20ByFactoryIgnoreCaseAndDeliveryAreaInOrderByCreatedAtDesc(factory, areas);
+        d.latestScans = (global ? scanLogRepository.findTop1000ByOrderByScanAtDesc()
+                : scanLogRepository.findTop1000ByFactoryIgnoreCaseAndDeliveryAreaInOrderByScanAtDesc(factory, areas))
+                .stream().limit(20).toList();
         d.warnings = shortage;
         d.normalTasks = normal;
         d.timeoutTasks = timeout;
@@ -76,20 +91,25 @@ public class DashboardService {
         };
     }
 
-    private long countTasksByStatusAndTime(TaskStatus status, LocalDateTime startTime) {
-        return taskRepository.findAll().stream()
-            .filter(t -> t.getStatus() == status)
-            .filter(t -> t.getCreatedAt() != null && t.getCreatedAt().isAfter(startTime))
-            .count();
+    private long countTasksByStatusAndTime(TaskStatus status, LocalDateTime startTime, boolean global,
+                                           String factory, List<String> areas) {
+        return global ? taskRepository.countByStatusAndCreatedAtAfter(status, startTime)
+                : taskRepository.countByFactoryIgnoreCaseAndDeliveryAreaInAndStatusAndCreatedAtAfter(
+                        factory, areas, status, startTime);
+    }
+
+    private long countTasks(TaskStatus status, boolean global, String factory, List<String> areas) {
+        return global ? taskRepository.countByStatus(status)
+                : taskRepository.countByFactoryIgnoreCaseAndDeliveryAreaInAndStatus(factory, areas, status);
+    }
+
+    private List<TaskStatus> activeStatuses() {
+        return List.of(TaskStatus.CREATED, TaskStatus.ACCEPTED, TaskStatus.PICKING, TaskStatus.PICKED,
+                TaskStatus.DELIVERING, TaskStatus.ARRIVED, TaskStatus.EXCEPTION);
     }
 
     private Comparator<ReplenishmentTaskEntity> taskOrder() {
         return Comparator.comparing(ReplenishmentTaskEntity::getCreatedAt, Comparator.nullsLast(Comparator.naturalOrder())).reversed();
     }
 
-    private boolean isLowStock(InventoryEntity x) {
-        return safe(x.getAvailableQty()).compareTo(safe(x.getSafetyStock())) < 0;
-    }
-
-    private BigDecimal safe(BigDecimal v) { return v == null ? BigDecimal.ZERO : v; }
 }

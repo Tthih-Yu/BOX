@@ -23,14 +23,17 @@ public class IntegrationService {
     private final InventoryRepository inventoryRepository;
     private final ProductionPlanRepository planRepository;
     private final AuditService auditService;
+    private final DataScopeService dataScopeService;
 
     public List<SapImsLinkEntity> links(String systemCode) {
+        dataScopeService.requireGlobalAdmin();
         if (systemCode == null || systemCode.isBlank()) return linkRepository.findAll(PageRequest.of(0, 1000, Sort.by(Sort.Direction.DESC, "id"))).getContent();
         return linkRepository.findBySystemCode(systemCode.trim().toUpperCase(Locale.ROOT));
     }
 
     @Transactional
     public SapImsLinkEntity upsertLink(FactoryDtos.IntegrationPayload p) {
+        requireSystemOrGlobalAdmin();
         if (p == null) throw new BusinessException(ErrorCode.PARAM_ERROR, "接口数据不能为空");
         String system = firstNonBlank(p.systemCode, "SAP").toUpperCase(Locale.ROOT);
         String key = firstNonBlank(p.externalKey, p.productCode, p.materialCode, IdGenerator.id("EXT"));
@@ -45,6 +48,7 @@ public class IntegrationService {
 
     @Transactional
     public MaterialBomEntity receiveSapBom(FactoryDtos.IntegrationPayload p) {
+        requireSystemOrGlobalAdmin();
         upsertLink(p);
         MaterialBomEntity b = new MaterialBomEntity();
         b.setBomNo(IdGenerator.id("BOM"));
@@ -69,8 +73,10 @@ public class IntegrationService {
 
     @Transactional
     public InventoryEntity receiveImsInventory(FactoryDtos.IntegrationPayload p) {
+        requireSystem();
         upsertLink(p);
-        InventoryEntity inv = inventoryRepository.findFirstByWarehouseMaterialCodeOrderByUpdatedAtDesc(firstNonBlank(p.warehouseMaterialCode, p.warehouseCode, p.materialCode)).orElseGet(InventoryEntity::new);
+        InventoryEntity inv = inventoryRepository.findFirstByWarehouseMaterialCodeAndFactoryIsNullAndDeliveryAreaIsNullOrderByUpdatedAtDesc(
+                firstNonBlank(p.warehouseMaterialCode, p.warehouseCode, p.materialCode)).orElseGet(InventoryEntity::new);
         inv.setWarehouseCode(firstNonBlank(p.warehouseCode, inv.getWarehouseCode(), "IMS")); inv.setLocationCode(firstNonBlank(inv.getLocationCode(), "IMS-SYNC"));
         inv.setWarehouseMaterialCode(firstNonBlank(p.warehouseMaterialCode, p.warehouseCode, p.materialCode)); inv.setMaterialCode(p.materialCode); inv.setMaterialName(p.materialName);
         inv.setStockQty(p.stockQty == null ? BigDecimal.ZERO : p.stockQty); if (p.safetyStock != null) inv.setSafetyStock(p.safetyStock); inv.setLastCheckedAt(LocalDateTime.now()); inv.setRemark("IMS库存同步；安全库存/额定值用于MPC预测");
@@ -81,6 +87,7 @@ public class IntegrationService {
 
     @Transactional
     public ProductionPlanEntity receivePpcPlan(FactoryDtos.IntegrationPayload p) {
+        requireSystem();
         ProductionPlanEntity plan = new ProductionPlanEntity();
         plan.setPlanNo(firstNonBlank(p.externalKey, IdGenerator.id("PPC"))); plan.setSourceSystem("PPC"); plan.setProductCode(p.productCode); plan.setProductName(p.productName); plan.setLineCode(p.lineCode); plan.setStationCode(p.stationCode); plan.setBundleCode(p.bundleCode);
         plan.setPlanQty(p.planQty == null || p.planQty.compareTo(BigDecimal.ZERO) <= 0 ? BigDecimal.ONE : p.planQty); plan.setDefaultBoxQty(p.boxQty == null ? new BigDecimal("100") : p.boxQty); plan.setDueAt(p.dueAt); plan.setStatus(PlanStatus.DRAFT); plan.setRemark(p.rawPayload);
@@ -90,4 +97,14 @@ public class IntegrationService {
     }
 
     private String firstNonBlank(String... values) { if (values == null) return null; for (String v : values) if (v != null && !v.isBlank()) return v.trim(); return null; }
+
+    private void requireSystemOrGlobalAdmin() {
+        if (RequestContext.getRole() != com.example.materialpull.enums.UserRole.SYSTEM) dataScopeService.requireGlobalAdmin();
+    }
+
+    private void requireSystem() {
+        if (RequestContext.getRole() != com.example.materialpull.enums.UserRole.SYSTEM) {
+            throw new BusinessException(ErrorCode.FORBIDDEN, "该接口仅限外部系统身份");
+        }
+    }
 }

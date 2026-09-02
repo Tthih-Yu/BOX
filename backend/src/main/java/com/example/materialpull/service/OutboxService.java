@@ -19,11 +19,27 @@ public class OutboxService {
             e.setEventNo(IdGenerator.id("EV"));
             e.setTopic(topic);
             e.setBusinessNo(businessNo);
+            String factory = property(payload, "getFactory");
+            String area = property(payload, "getDeliveryArea");
+            e.setFactory(factory);
+            e.setDeliveryArea(area);
+            e.setScopeType(factory == null ? "GLOBAL" : area == null ? "FACTORY_ONLY" : "FACTORY_AREA");
             e.setPayload(String.valueOf(payload));
             e.setNextRetryAt(LocalDateTime.now());
             repository.save(e);
         } catch (Exception ignored) {
             // Outbox 不能反向拖垮主业务，失败由接口日志和任务日志兜底记录。
+        }
+    }
+
+    private String property(Object payload, String getter) {
+        if (payload == null) return null;
+        try {
+            Object value = payload.getClass().getMethod(getter).invoke(payload);
+            if (value == null || String.valueOf(value).isBlank()) return null;
+            return String.valueOf(value).trim();
+        } catch (Exception ignored) {
+            return null;
         }
     }
 }

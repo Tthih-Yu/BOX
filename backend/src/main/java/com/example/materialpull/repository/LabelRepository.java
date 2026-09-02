@@ -8,6 +8,7 @@ import org.springframework.data.repository.query.Param;
 import java.util.*;
 
 public interface LabelRepository extends JpaRepository<LabelEntity, Long> {
+    List<LabelEntity> findTop1000ByFactoryIgnoreCaseAndDeliveryAreaInOrderByIdDesc(String factory, Collection<String> deliveryAreas);
     Optional<LabelEntity> findByLabelCode(String labelCode);
     Optional<LabelEntity> findByBarcodeValue(String barcodeValue);
     Optional<LabelEntity> findByWarehouseCode(String warehouseCode);
@@ -17,6 +18,7 @@ public interface LabelRepository extends JpaRepository<LabelEntity, Long> {
     boolean existsByKanbanCardNo(String kanbanCardNo);
     boolean existsByPrimaryScanValue(String primaryScanValue);
     long countByStatus(LabelStatus status);
+    long countByFactoryIgnoreCaseAndDeliveryAreaIn(String factory, Collection<String> deliveryAreas);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select l from LabelEntity l where l.labelCode = :code or l.barcodeValue = :code or l.warehouseCode = :code or l.kanbanCardNo = :code or l.primaryScanValue = :code or l.secondaryScanValue = :code")

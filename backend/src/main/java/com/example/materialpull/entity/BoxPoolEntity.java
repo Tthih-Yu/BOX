@@ -24,6 +24,8 @@ public class BoxPoolEntity {
     private String warehouseMaterialCode;
     private String warehouseCode;
     private String taskNo;
+    @Transient private String factory;
+    @Transient private String deliveryArea;
     private String stationCode;
     private String currentLocation;
     @Enumerated(EnumType.STRING) private BoxPoolStatus status = BoxPoolStatus.AVAILABLE;

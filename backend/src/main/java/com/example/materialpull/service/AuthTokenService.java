@@ -16,14 +16,17 @@ import java.time.LocalDateTime;
 import java.util.Base64;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.List;
 
 @Service
 @RequiredArgsConstructor
 public class AuthTokenService {
+    public static final int CURRENT_SCOPE_VERSION = 1;
     private final SecurityProperties securityProperties;
     private final UserRepository userRepository;
     private final SessionStore sessionStore;
     private final com.example.materialpull.repository.UserDeliveryAreaRepository userDeliveryAreaRepository;
+    private final com.example.materialpull.service.realtime.WebSocketConnectionRegistry websocketConnections;
     private final SecureRandom secureRandom = new SecureRandom();
 
     private Duration sessionTtl() {
@@ -43,7 +46,7 @@ public class AuthTokenService {
         String factory = user.getFactory();
         java.util.List<String> deliveryAreas = loadUserDeliveryAreas(user.getId());
         
-        SessionUser session = new SessionUser(token, user.getId(), user.getUsername(), user.getRealName(), user.getRole(), issuedAt, user.getPasswordUpdatedAt(), expiresAt, factory, deliveryAreas);
+        SessionUser session = new SessionUser(token, user.getId(), user.getUsername(), user.getRealName(), user.getRole(), issuedAt, user.getPasswordUpdatedAt(), expiresAt, factory, deliveryAreas, CURRENT_SCOPE_VERSION);
         sessionStore.saveSession(session, sessionTtl());
         return session;
     }
@@ -59,6 +62,10 @@ public class AuthTokenService {
         Optional<SessionUser> session = sessionStore.getSession(token);
         if (session.isEmpty()) return Optional.empty();
         SessionUser s = session.get();
+        if (!Objects.equals(s.scopeVersion(), CURRENT_SCOPE_VERSION)) {
+            revoke(s.token());
+            return Optional.empty();
+        }
         if (s.userId() == null) return Optional.empty();
         Optional<UserEntity> current = userRepository.findById(s.userId());
         if (current.isEmpty() || !Boolean.TRUE.equals(current.get().getEnabled())) {
@@ -76,10 +83,29 @@ public class AuthTokenService {
             revoke(s.token());
             return Optional.empty();
         }
+
+        // 配送区域授权变化也必须立即使旧 Session 失效，不能继续沿用签发时的旧范围直到 TTL 到期。
+        List<String> currentDeliveryAreas = loadUserDeliveryAreas(user.getId());
+        if (!normalizedAreas(currentDeliveryAreas).equals(normalizedAreas(s.deliveryAreas()))) {
+            revoke(s.token());
+            return Optional.empty();
+        }
         
-        SessionUser refreshed = new SessionUser(s.token(), user.getId(), user.getUsername(), user.getRealName(), user.getRole(), s.issuedAt(), user.getPasswordUpdatedAt(), s.expiresAt(), s.factory(), s.deliveryAreas());
+        SessionUser refreshed = new SessionUser(s.token(), user.getId(), user.getUsername(), user.getRealName(), user.getRole(), s.issuedAt(), user.getPasswordUpdatedAt(), s.expiresAt(), s.factory(), s.deliveryAreas(), CURRENT_SCOPE_VERSION);
         sessionStore.saveSession(refreshed, sessionTtl());
         return Optional.of(refreshed);
+    }
+
+    private List<String> normalizedAreas(List<String> areas) {
+        if (areas == null) return List.of();
+        return areas.stream()
+                .filter(Objects::nonNull)
+                .map(String::trim)
+                .filter(area -> !area.isEmpty())
+                .map(area -> area.toLowerCase(java.util.Locale.ROOT))
+                .distinct()
+                .sorted()
+                .toList();
     }
 
     public void revoke(String token) {
@@ -89,12 +115,13 @@ public class AuthTokenService {
     public void revokeUserSessions(Long userId) {
         sessionStore.removeUserSessions(userId);
         sessionStore.removeUserTickets(userId);
+        websocketConnections.invalidateUser(userId);
     }
 
     public WsTicket issueWebsocketTicket(SessionUser session) {
         String ticket = randomToken(32);
         LocalDateTime expiresAt = LocalDateTime.now().plusSeconds(Math.max(30, securityProperties.getWebsocketTicketTtlSeconds()));
-        SessionUser ticketSession = new SessionUser(ticket, session.userId(), session.username(), session.realName(), session.role(), session.issuedAt(), session.passwordUpdatedAt(), expiresAt, session.factory(), session.deliveryAreas());
+        SessionUser ticketSession = new SessionUser(ticket, session.userId(), session.username(), session.realName(), session.role(), session.issuedAt(), session.passwordUpdatedAt(), expiresAt, session.factory(), session.deliveryAreas(), CURRENT_SCOPE_VERSION);
         sessionStore.saveTicket(ticketSession, ticketTtl());
         return new WsTicket(ticket, expiresAt);
     }
@@ -120,7 +147,7 @@ public class AuthTokenService {
         return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
     }
 
-    public record SessionUser(String token, Long userId, String username, String realName, UserRole role, LocalDateTime issuedAt, LocalDateTime passwordUpdatedAt, LocalDateTime expiresAt, String factory, java.util.List<String> deliveryAreas) {
+    public record SessionUser(String token, Long userId, String username, String realName, UserRole role, LocalDateTime issuedAt, LocalDateTime passwordUpdatedAt, LocalDateTime expiresAt, String factory, java.util.List<String> deliveryAreas, Integer scopeVersion) {
         @JsonCreator
         public SessionUser(
                 @JsonProperty("token") String token,
@@ -132,7 +159,8 @@ public class AuthTokenService {
                 @JsonProperty("passwordUpdatedAt") LocalDateTime passwordUpdatedAt,
                 @JsonProperty("expiresAt") LocalDateTime expiresAt,
                 @JsonProperty("factory") String factory,
-                @JsonProperty("deliveryAreas") java.util.List<String> deliveryAreas) {
+                @JsonProperty("deliveryAreas") java.util.List<String> deliveryAreas,
+                @JsonProperty("scopeVersion") Integer scopeVersion) {
             this.token = token;
             this.userId = userId;
             this.username = username;
@@ -143,6 +171,15 @@ public class AuthTokenService {
             this.expiresAt = expiresAt;
             this.factory = factory;
             this.deliveryAreas = deliveryAreas;
+            this.scopeVersion = scopeVersion;
+        }
+
+        /** 源码兼容构造器；新创建的 Session 自动使用当前范围结构版本。 */
+        public SessionUser(String token, Long userId, String username, String realName, UserRole role,
+                           LocalDateTime issuedAt, LocalDateTime passwordUpdatedAt, LocalDateTime expiresAt,
+                           String factory, java.util.List<String> deliveryAreas) {
+            this(token, userId, username, realName, role, issuedAt, passwordUpdatedAt, expiresAt,
+                    factory, deliveryAreas, CURRENT_SCOPE_VERSION);
         }
     }
     public record WsTicket(String ticket, LocalDateTime expiresAt) {}

@@ -33,7 +33,7 @@ public class WeeklyPlanScheduler {
 
     private void refresh(LocalDate planDate) {
         try {
-            WeeklyPlanCalcService.CalcResult result = calcService.calculate(planDate, true);
+            WeeklyPlanCalcService.CalcResult result = calcService.calculateSystem(planDate, true);
             log.info("当天用量自动刷新完成，日期={}，物料={}，组件={}，更新映射={}，未维护单根用量跳过={}，提示={}",
                     planDate,
                     result.materialCount,

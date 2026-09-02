@@ -18,6 +18,8 @@ public final class RequestContext {
     // DataScope 新增字段
     private static final ThreadLocal<String> FACTORY = new ThreadLocal<>();
     private static final ThreadLocal<List<String>> DELIVERY_AREAS = new ThreadLocal<>();
+    /** 仅由认证过滤器在 /scan/* 请求中标记。 */
+    private static final ThreadLocal<Boolean> TRUSTED_SCANNER = new ThreadLocal<>();
 
     private RequestContext() {}
 
@@ -57,6 +59,8 @@ public final class RequestContext {
     // DataScope 新增方法
     public static String getFactory() { return FACTORY.get(); }
     public static List<String> getDeliveryAreas() { return DELIVERY_AREAS.get(); }
+    public static void setTrustedScanner(boolean trusted) { TRUSTED_SCANNER.set(trusted); }
+    public static boolean isTrustedScanner() { return Boolean.TRUE.equals(TRUSTED_SCANNER.get()); }
     
     /**
      * 判断是否为全局管理员（ADMIN 且 factory 为 null）
@@ -80,5 +84,6 @@ public final class RequestContext {
         ROLE.remove();
         FACTORY.remove();
         DELIVERY_AREAS.remove();
+        TRUSTED_SCANNER.remove();
     }
 }

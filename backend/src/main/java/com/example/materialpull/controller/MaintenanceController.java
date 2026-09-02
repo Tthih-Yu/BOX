@@ -9,6 +9,7 @@ import com.example.materialpull.maintenance.DataQualityService;
 import com.example.materialpull.maintenance.RecoveryService;
 import com.example.materialpull.security.RequireRoles;
 import com.example.materialpull.service.SystemAlertService;
+import com.example.materialpull.service.DataScopeService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
 
@@ -23,32 +24,43 @@ public class MaintenanceController {
     private final DataQualityService dataQualityService;
     private final RecoveryService recoveryService;
     private final SystemAlertService alertService;
+    private final DataScopeService dataScopeService;
 
     @GetMapping("/data-check")
-    public ApiResponse<HealthDtos.HealthReport> dataCheck(@RequestParam(defaultValue = "false") boolean createAlerts) { return ApiResponse.ok(dataQualityService.checkFactoryHealth(createAlerts)); }
+    public ApiResponse<HealthDtos.HealthReport> dataCheck(@RequestParam(defaultValue = "false") boolean createAlerts) {
+        dataScopeService.requireGlobalAdmin();
+        return ApiResponse.ok(dataQualityService.checkFactoryHealth(createAlerts));
+    }
 
     @PostMapping("/recover/stuck-tasks")
     public ApiResponse<HealthDtos.RecoveryResult> recoverStuck(@RequestBody(required = false) Map<String, String> body) {
+        dataScopeService.requireGlobalAdmin();
         String operator = OperatorResolver.currentOperator();
         return ApiResponse.ok(recoveryService.markStuckTasks(operator));
     }
 
     @PostMapping("/recover/inventory-available")
     public ApiResponse<HealthDtos.RecoveryResult> rebuildInventory(@RequestBody(required = false) Map<String, String> body) {
+        dataScopeService.requireGlobalAdmin();
         String operator = OperatorResolver.currentOperator();
         return ApiResponse.ok(recoveryService.rebuildInventoryAvailable(operator));
     }
 
     @PostMapping("/recover/box-pairs")
     public ApiResponse<HealthDtos.RecoveryResult> lockBrokenPairs(@RequestBody(required = false) Map<String, String> body) {
+        dataScopeService.requireGlobalAdmin();
         String operator = OperatorResolver.currentOperator();
         return ApiResponse.ok(recoveryService.lockBrokenPairs(operator));
     }
 
-    @GetMapping("/alerts") public ApiResponse<List<SystemAlertEntity>> alerts() { return ApiResponse.ok(alertService.openAlerts()); }
+    @GetMapping("/alerts") public ApiResponse<List<SystemAlertEntity>> alerts() {
+        dataScopeService.requireGlobalAdmin();
+        return ApiResponse.ok(alertService.openAlerts());
+    }
 
     @PostMapping("/alerts/{id}/close")
     public ApiResponse<SystemAlertEntity> closeAlert(@PathVariable Long id, @RequestBody(required = false) Map<String, String> body) {
+        dataScopeService.requireGlobalAdmin();
         String operator = OperatorResolver.currentOperator();
         String remark = body == null ? "已处理" : body.getOrDefault("remark", "已处理");
         return ApiResponse.ok(alertService.close(id, operator, remark));

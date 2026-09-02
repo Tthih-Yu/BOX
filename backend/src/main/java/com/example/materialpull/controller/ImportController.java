@@ -12,6 +12,7 @@ import com.example.materialpull.repository.ImportBatchRepository;
 import com.example.materialpull.repository.ImportErrorRepository;
 import com.example.materialpull.security.RequireRoles;
 import com.example.materialpull.service.ImportService;
+import com.example.materialpull.service.DataScopeService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.data.domain.PageRequest;
@@ -28,6 +29,7 @@ public class ImportController {
     private final ImportService importService;
     private final ImportBatchRepository batchRepository;
     private final ImportErrorRepository errorRepository;
+    private final DataScopeService dataScopeService;
 
     @PostMapping("/{type}")
     public ApiResponse<ImportBatchEntity> upload(@PathVariable String type,
@@ -40,6 +42,13 @@ public class ImportController {
         return ApiResponse.ok(importService.importExcel(type, file, OperatorResolver.currentOperator(), overwrite));
     }
 
-    @GetMapping public ApiResponse<List<ImportBatchEntity>> batches() { return ApiResponse.ok(batchRepository.findAll(PageRequest.of(0, 1000, Sort.by(Sort.Direction.DESC, "id"))).getContent()); }
-    @GetMapping("/{batchNo}/errors") public ApiResponse<List<ImportErrorEntity>> errors(@PathVariable String batchNo) { return ApiResponse.ok(errorRepository.findByBatchNoOrderByRowNoAsc(batchNo)); }
+    @GetMapping public ApiResponse<List<ImportBatchEntity>> batches() {
+        dataScopeService.requireGlobalAdmin();
+        return ApiResponse.ok(batchRepository.findAll(PageRequest.of(0, 1000, Sort.by(Sort.Direction.DESC, "id"))).getContent());
+    }
+
+    @GetMapping("/{batchNo}/errors") public ApiResponse<List<ImportErrorEntity>> errors(@PathVariable String batchNo) {
+        dataScopeService.requireGlobalAdmin();
+        return ApiResponse.ok(errorRepository.findByBatchNoOrderByRowNoAsc(batchNo));
+    }
 }

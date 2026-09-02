@@ -76,9 +76,15 @@ api.interceptors.response.use(
     }
     if (err.response?.status === 401) {
       localStorage.removeItem('token')
+      localStorage.removeItem('loginUser')
       if (!location.pathname.includes('/login')) location.href = '/login'
     }
-    const msg = err.response?.data?.message || err.message || '网络异常'
+    const status = err.response?.status
+    const fallback = status === 401 ? '登录已失效，请重新登录'
+      : status === 403 ? '无权执行该操作'
+      : status === 404 ? '资源不存在或不在当前账号范围内'
+      : '网络异常'
+    const msg = err.response?.data?.message || (status ? fallback : err.message) || fallback
     const trace = err.response?.headers?.['x-request-id'] || err.response?.data?.requestId
     ElMessage.error(`${msg}${trace ? `｜追踪号：${trace}` : ''}`)
     return Promise.reject(err)

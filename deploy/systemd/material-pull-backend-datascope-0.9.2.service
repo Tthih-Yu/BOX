@@ -1,0 +1,26 @@
+# 发布候选草案：尚未安装到 /etc/systemd/system，不能直接视为已部署配置。
+# 依据 2026-09-01 只读取得的现网 material-pull-backend.service 生成。
+[Unit]
+Description=Material Pull System Backend
+After=network-online.target mysql.service
+Wants=network-online.target
+Requires=mysql.service
+
+[Service]
+Type=simple
+User=tthih
+Group=tthih
+WorkingDirectory=/opt/apps/material-pull/backend
+EnvironmentFile=/etc/material-pull/material-pull.env
+
+ExecStart=/usr/lib/jvm/java-17-openjdk-amd64/bin/java \
+  -jar /opt/apps/material-pull/backend/target/material-pull-system-backend-0.9.2.jar \
+  --spring.profiles.active=mysql \
+  --server.address=127.0.0.1
+
+Restart=always
+RestartSec=5
+SuccessExitStatus=143
+
+[Install]
+WantedBy=multi-user.target

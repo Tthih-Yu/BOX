@@ -19,6 +19,7 @@ public class PurchaseRequirementEntity {
     @Id @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
     @Version private Long version;
+    private String factory;
     private String purchaseNo;
     private String demandNo;
     private String planNo;

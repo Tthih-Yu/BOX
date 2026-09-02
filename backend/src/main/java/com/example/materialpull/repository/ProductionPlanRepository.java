@@ -10,6 +10,8 @@ import java.util.*;
 public interface ProductionPlanRepository extends JpaRepository<ProductionPlanEntity, Long> {
     Optional<ProductionPlanEntity> findByPlanNo(String planNo);
     List<ProductionPlanEntity> findByStatus(PlanStatus status);
+    List<ProductionPlanEntity> findTop1000ByFactoryIgnoreCaseOrderByIdDesc(String factory);
+    List<ProductionPlanEntity> findByFactoryIgnoreCaseAndStatusOrderByIdDesc(String factory, PlanStatus status);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select p from ProductionPlanEntity p where p.planNo = :planNo")

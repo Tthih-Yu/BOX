@@ -12,12 +12,15 @@ import java.time.LocalDateTime;
         @Index(name = "idx_box_station_material", columnList = "stationCode,materialCode"),
         @Index(name = "idx_box_kanban", columnList = "kanbanCardNo"),
         @Index(name = "idx_box_barcode", columnList = "barcodeValue"),
-        @Index(name = "idx_box_warehouse_code", columnList = "warehouseCode")
+        @Index(name = "idx_box_warehouse_code", columnList = "warehouseCode"),
+        @Index(name = "idx_box_scope", columnList = "factory,deliveryArea")
 })
 public class BoxEntity {
     @Id @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
     @Version private Long version;
+    private String factory;
+    private String deliveryArea;
     private String boxCode;
     private String pairCode;
     private String boxSide;

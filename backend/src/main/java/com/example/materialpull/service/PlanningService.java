@@ -30,10 +30,13 @@ public class PlanningService {
     private final MaterialMappingRepository mappingRepository;
     private final AuditService auditService;
     private final RealtimePushService pushService;
+    private final DataScopeService dataScopeService;
 
     public List<ProductionPlanEntity> plans(String status) {
-        if (status == null || status.isBlank()) return planRepository.findAll(topPage()).getContent();
-        return planRepository.findByStatus(PlanStatus.valueOf(status.trim().toUpperCase(Locale.ROOT)));
+        PlanStatus parsed = status == null || status.isBlank() ? null : PlanStatus.valueOf(status.trim().toUpperCase(Locale.ROOT));
+        if (dataScopeService.isGlobalAdmin()) return parsed == null ? planRepository.findAll(topPage()).getContent() : planRepository.findByStatus(parsed);
+        return parsed == null ? planRepository.findTop1000ByFactoryIgnoreCaseOrderByIdDesc(dataScopeService.currentFactory())
+                : planRepository.findByFactoryIgnoreCaseAndStatusOrderByIdDesc(dataScopeService.currentFactory(), parsed);
     }
 
     public List<MaterialBomEntity> boms() { return bomRepository.findAll(topPage()).getContent(); }
@@ -41,23 +44,27 @@ public class PlanningService {
     public List<StationMaterialEntity> processConfigs() { return stationMaterialRepository.findAll(topPage()).getContent(); }
 
     public List<MaterialDemandEntity> demands(String status) {
-        if (status == null || status.isBlank()) return demandRepository.findAll(topPage()).getContent();
-        return demandRepository.findByStatus(DemandStatus.valueOf(status.trim().toUpperCase(Locale.ROOT)));
+        DemandStatus parsed = status == null || status.isBlank() ? null : DemandStatus.valueOf(status.trim().toUpperCase(Locale.ROOT));
+        if (dataScopeService.isGlobalAdmin()) return parsed == null ? demandRepository.findAll(topPage()).getContent() : demandRepository.findByStatus(parsed);
+        return parsed == null ? demandRepository.findTop1000ByFactoryIgnoreCaseOrderByIdDesc(dataScopeService.currentFactory())
+                : demandRepository.findByFactoryIgnoreCaseAndStatusOrderByIdDesc(dataScopeService.currentFactory(), parsed);
     }
 
     public List<PurchaseRequirementEntity> purchases(String status) {
-        if (status == null || status.isBlank()) return purchaseRepository.findAll(topPage()).getContent();
-        return purchaseRepository.findByStatus(PurchaseStatus.valueOf(status.trim().toUpperCase(Locale.ROOT)));
+        PurchaseStatus parsed = status == null || status.isBlank() ? null : PurchaseStatus.valueOf(status.trim().toUpperCase(Locale.ROOT));
+        if (dataScopeService.isGlobalAdmin()) return parsed == null ? purchaseRepository.findAll(topPage()).getContent() : purchaseRepository.findByStatus(parsed);
+        return parsed == null ? purchaseRepository.findTop1000ByFactoryIgnoreCaseOrderByIdDesc(dataScopeService.currentFactory())
+                : purchaseRepository.findByFactoryIgnoreCaseAndStatusOrderByIdDesc(dataScopeService.currentFactory(), parsed);
     }
 
     public List<FactoryDtos.InventoryAdjustmentRow> inventoryAdjustments() {
-        return demandRepository.findAll(topPage()).getContent().stream().map(this::toAdjustmentRow).toList();
+        return demands(null).stream().map(this::toAdjustmentRow).toList();
     }
 
     public List<FactoryDtos.MaterialForecastRow> materialForecasts() {
-        Map<String, PurchaseRequirementEntity> purchaseByDemand = purchaseRepository.findAll(topPage()).getContent().stream()
+        Map<String, PurchaseRequirementEntity> purchaseByDemand = purchases(null).stream()
                 .collect(Collectors.toMap(PurchaseRequirementEntity::getDemandNo, x -> x, (a, b) -> a));
-        return demandRepository.findAll(topPage()).getContent().stream().map(d -> toForecastRow(d, purchaseByDemand.get(d.getDemandNo()))).toList();
+        return demands(null).stream().map(d -> toForecastRow(d, purchaseByDemand.get(d.getDemandNo()))).toList();
     }
 
     private PageRequest topPage() { return PageRequest.of(0, 1000, Sort.by(Sort.Direction.DESC, "id")); }
@@ -80,6 +87,12 @@ public class PlanningService {
     @Transactional
     public ProductionPlanEntity savePlan(ProductionPlanEntity p) {
         if (p == null) throw new BusinessException(ErrorCode.PARAM_ERROR, "生产计划不能为空");
+        if (p.getId() != null) {
+            ProductionPlanEntity old = planRepository.findById(p.getId()).orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "生产计划不存在：" + p.getId()));
+            dataScopeService.requireAccessFactoryOnly(old.getFactory());
+        }
+        if (dataScopeService.isGlobalAdmin()) throw new BusinessException(ErrorCode.FORBIDDEN, "全局管理员没有可信工厂，不能直接创建区域生产计划");
+        p.setFactory(dataScopeService.currentFactory());
         if (p.getPlanNo() == null || p.getPlanNo().isBlank()) p.setPlanNo(IdGenerator.id("PPC"));
         if (p.getPlanQty() == null || p.getPlanQty().compareTo(BigDecimal.ZERO) <= 0) throw new BusinessException(ErrorCode.PARAM_ERROR, "计划数量必须大于0");
         if (p.getStatus() == null) p.setStatus(PlanStatus.DRAFT);
@@ -107,6 +120,7 @@ public class PlanningService {
     @Transactional
     public FactoryDtos.PlanGenerateResult releaseAndGenerate(String planNo, boolean createPullTasks, String operator) {
         ProductionPlanEntity plan = planRepository.findByPlanNoForUpdate(planNo).orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "计划不存在：" + planNo));
+        dataScopeService.requireAccessFactoryOnly(plan.getFactory());
         if (plan.getStatus() == PlanStatus.CLOSED || plan.getStatus() == PlanStatus.CANCELLED) {
             throw new BusinessException(ErrorCode.STATE_CONFLICT, "计划已关闭或取消，禁止生成需求：" + plan.getStatus());
         }
@@ -163,6 +177,7 @@ public class PlanningService {
     @Transactional
     public PurchaseRequirementEntity submitPurchase(String purchaseNo, String operator) {
         PurchaseRequirementEntity p = purchaseRepository.findByPurchaseNo(purchaseNo).orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "采购需求不存在：" + purchaseNo));
+        dataScopeService.requireAccessFactoryOnly(p.getFactory());
         p.setStatus(PurchaseStatus.SUBMITTED);
         p.setSubmittedAt(LocalDateTime.now());
         p.setMpcRemark(firstNonBlank(p.getMpcRemark(), "MPC预测采购已提交，操作人=" + firstNonBlank(operator, OperatorResolver.systemOperator())));
@@ -193,6 +208,7 @@ public class PlanningService {
         StationMaterialEntity sm = matchProcessConfig(b, processConfigs);
         MaterialDemandEntity d = new MaterialDemandEntity();
         d.setDemandNo(IdGenerator.id("DMD"));
+        d.setFactory(plan.getFactory());
         d.setPlanNo(plan.getPlanNo());
         d.setLineCode(firstNonBlank(b.getLineCode(), sm == null ? null : sm.getLineCode(), plan.getLineCode()));
         d.setStationCode(firstNonBlank(b.getStationCode(), sm == null ? null : sm.getStationCode(), plan.getStationCode()));
@@ -221,6 +237,7 @@ public class PlanningService {
     private MaterialDemandEntity createDemandFromStation(ProductionPlanEntity plan, StationMaterialEntity sm) {
         MaterialDemandEntity d = new MaterialDemandEntity();
         d.setDemandNo(IdGenerator.id("DMD"));
+        d.setFactory(plan.getFactory());
         d.setPlanNo(plan.getPlanNo());
         d.setLineCode(sm.getLineCode());
         d.setStationCode(sm.getStationCode());
@@ -254,10 +271,17 @@ public class PlanningService {
                 .findFirst().orElse(null);
     }
 
-    private void evaluateInventory(MaterialDemandEntity d) {
-        InventoryEntity inv = inventoryRepository.findFirstByWarehouseMaterialCodeOrderByUpdatedAtDesc(d.getWarehouseMaterialCode()).orElse(null);
-        BigDecimal available = inv == null ? BigDecimal.ZERO : safe(inv.getAvailableQty());
-        BigDecimal safety = firstPositive(d.getSafetyStock(), inv == null ? null : inv.getSafetyStock(), BigDecimal.ZERO);
+    void evaluateInventory(MaterialDemandEntity d) {
+        if (d.getFactory() == null || d.getFactory().isBlank()) {
+            throw new BusinessException(ErrorCode.DATA_DIRTY, "物料需求缺少工厂范围，禁止计算库存");
+        }
+        List<InventoryEntity> inventories = inventoryRepository.findByFactoryIgnoreCaseAndWarehouseMaterialCode(
+                d.getFactory().trim(), d.getWarehouseMaterialCode());
+        BigDecimal available = inventories.stream().map(InventoryEntity::getAvailableQty).map(this::safe)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        BigDecimal inventorySafety = inventories.stream().map(InventoryEntity::getSafetyStock).map(this::safe)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        BigDecimal safety = firstPositive(d.getSafetyStock(), inventorySafety, BigDecimal.ZERO);
         BigDecimal threshold = firstPositive(d.getMpcThresholdQty(), safety);
         d.setInventoryAvailable(available);
         d.setSafetyStock(safety);
@@ -275,6 +299,7 @@ public class PlanningService {
     private PurchaseRequirementEntity createPurchase(ProductionPlanEntity plan, MaterialDemandEntity d) {
         PurchaseRequirementEntity p = new PurchaseRequirementEntity();
         p.setPurchaseNo(IdGenerator.id("MPC"));
+        p.setFactory(d.getFactory());
         p.setDemandNo(d.getDemandNo());
         p.setPlanNo(plan.getPlanNo());
         p.setMaterialCode(d.getMaterialCode());
@@ -303,7 +328,9 @@ public class PlanningService {
             remaining = remaining.subtract(taskQty);
             ReplenishmentTaskEntity t = new ReplenishmentTaskEntity();
             t.setTaskNo(IdGenerator.idMinute("RP"));
-            t.setFactory(resolveMappingFactory(d.getMaterialCode()));
+            MaterialMappingEntity scope = resolvePlanTaskMapping(plan, d);
+            t.setFactory(plan.getFactory());
+            t.setDeliveryArea(scope.getDeliveryArea());
             t.setPlanNo(plan.getPlanNo());
             t.setDemandNo(d.getDemandNo());
             t.setLineCode(d.getLineCode());
@@ -330,10 +357,16 @@ public class PlanningService {
         return tasks;
     }
 
-    private String resolveMappingFactory(String materialCode) {
-        if (materialCode == null || materialCode.isBlank()) return null;
-        return mappingRepository.findByLineMaterialCodeAndEnabledTrueOrderByMappingOrderAscIdAsc(materialCode.trim()).stream()
-                .findFirst().map(MaterialMappingEntity::getFactory).orElse(null);
+    private MaterialMappingEntity resolvePlanTaskMapping(ProductionPlanEntity plan, MaterialDemandEntity demand) {
+        List<MaterialMappingEntity> candidates = mappingRepository.findByLineMaterialCodeAndEnabledTrueOrderByMappingOrderAscIdAsc(demand.getMaterialCode());
+        List<MaterialMappingEntity> scoped = candidates.stream()
+                .filter(mapping -> mapping.getFactory() != null && plan.getFactory().equalsIgnoreCase(mapping.getFactory().trim()))
+                .filter(mapping -> mapping.getDeliveryArea() != null && !mapping.getDeliveryArea().isBlank())
+                .toList();
+        if (scoped.size() != 1) {
+            throw new BusinessException(ErrorCode.DATA_DIRTY, "计划物料无法在当前工厂唯一确定配送区域：" + demand.getMaterialCode());
+        }
+        return scoped.get(0);
     }
 
     private FactoryDtos.InventoryAdjustmentRow toAdjustmentRow(MaterialDemandEntity d) {

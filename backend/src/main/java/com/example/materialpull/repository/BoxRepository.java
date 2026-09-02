@@ -15,7 +15,10 @@ public interface BoxRepository extends JpaRepository<BoxEntity, Long> {
     Optional<BoxEntity> findByWarehouseCode(String warehouseCode);
     Optional<BoxEntity> findByKanbanCardNo(String kanbanCardNo);
     List<BoxEntity> findByPairCodeOrderByBoxSideAsc(String pairCode);
+    List<BoxEntity> findTop1000ByFactoryIgnoreCaseAndDeliveryAreaInOrderByIdDesc(String factory, Collection<String> deliveryAreas);
     long countByStatus(BoxStatus status);
+    long countByFactoryIgnoreCaseAndDeliveryAreaIn(String factory, Collection<String> deliveryAreas);
+    long countByFactoryIgnoreCaseAndDeliveryAreaInAndStatus(String factory, Collection<String> deliveryAreas, BoxStatus status);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select b from BoxEntity b where b.labelCode = :labelCode")
