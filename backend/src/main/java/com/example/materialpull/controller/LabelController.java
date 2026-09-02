@@ -24,6 +24,7 @@ public class LabelController {
     private final LabelTemplateRepository templateRepository;
     private final LabelScanRuleRepository ruleRepository;
     private final com.example.materialpull.service.CodeRenderService codeRenderService;
+    private final com.example.materialpull.service.DataScopeService dataScopeService;
 
     @GetMapping
     @RequireRoles({UserRole.ADMIN, UserRole.PLANNER, UserRole.WAREHOUSE, UserRole.LINE, UserRole.VIEWER})
@@ -69,11 +70,15 @@ public class LabelController {
 
     @PostMapping("/templates")
     @RequireRoles({UserRole.ADMIN})
-    public ApiResponse<LabelTemplateEntity> saveTemplate(@RequestBody LabelTemplateEntity e) { return ApiResponse.ok(templateRepository.save(e)); }
+    public ApiResponse<LabelTemplateEntity> saveTemplate(@RequestBody LabelTemplateEntity e) {
+        dataScopeService.requireGlobalAdmin();
+        return ApiResponse.ok(templateRepository.save(e));
+    }
 
     @DeleteMapping("/templates/{id}")
     @RequireRoles({UserRole.ADMIN})
     public ApiResponse<Void> delTemplate(@PathVariable Long id) {
+        dataScopeService.requireGlobalAdmin();
         templateRepository.findById(id).ifPresent(e -> { e.setEnabled(false); templateRepository.save(e); });
         return ApiResponse.ok(null);
     }
@@ -84,11 +89,15 @@ public class LabelController {
 
     @PostMapping("/scan-rules")
     @RequireRoles({UserRole.ADMIN})
-    public ApiResponse<LabelScanRuleEntity> saveScanRule(@RequestBody LabelScanRuleEntity e) { return ApiResponse.ok(ruleRepository.save(e)); }
+    public ApiResponse<LabelScanRuleEntity> saveScanRule(@RequestBody LabelScanRuleEntity e) {
+        dataScopeService.requireGlobalAdmin();
+        return ApiResponse.ok(ruleRepository.save(e));
+    }
 
     @DeleteMapping("/scan-rules/{id}")
     @RequireRoles({UserRole.ADMIN})
     public ApiResponse<Void> delScanRule(@PathVariable Long id) {
+        dataScopeService.requireGlobalAdmin();
         ruleRepository.findById(id).ifPresent(e -> { e.setEnabled(false); ruleRepository.save(e); });
         return ApiResponse.ok(null);
     }

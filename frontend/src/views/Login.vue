@@ -136,6 +136,8 @@ async function login() {
         realName: r.realName,
         role: r.role,
         roleLabel: r.roleLabel,
+        factory: r.factory,
+        deliveryAreas: r.deliveryAreas || [],
         expiresAt: r.expiresAt,
       }),
     )

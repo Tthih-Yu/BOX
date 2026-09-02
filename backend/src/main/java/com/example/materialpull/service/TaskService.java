@@ -34,6 +34,7 @@ public class TaskService {
     private final PrintJobService printJobService;
     private final BoxPoolService boxPoolService;
     private final AgvService agvService;
+    private final DataScopeService dataScopeService;
 
     public List<ReplenishmentTaskEntity> list(String status, String date) {
         TaskStatus s = null;
@@ -55,17 +56,45 @@ public class TaskService {
         if (day != null) {
             LocalDateTime from = day.atStartOfDay();
             LocalDateTime to = day.plusDays(1).atStartOfDay().minusNanos(1);
-            if (s != null) return taskRepository.findTop1000ByStatusAndCreatedAtBetweenOrderByCreatedAtDesc(s, from, to);
-            return taskRepository.findTop1000ByCreatedAtBetweenOrderByCreatedAtDesc(from, to);
+            if (dataScopeService.isGlobalAdmin()) {
+                if (s != null) return taskRepository.findTop1000ByStatusAndCreatedAtBetweenOrderByCreatedAtDesc(s, from, to);
+                return taskRepository.findTop1000ByCreatedAtBetweenOrderByCreatedAtDesc(from, to);
+            }
+            String factory = dataScopeService.currentFactory();
+            List<String> areas = dataScopeService.currentDeliveryAreas();
+            if (areas.isEmpty()) {
+                if (s != null) return taskRepository.findTop1000ByFactoryAndStatusAndCreatedAtBetweenOrderByCreatedAtDesc(factory, s, from, to);
+                return taskRepository.findTop1000ByFactoryAndCreatedAtBetweenOrderByCreatedAtDesc(factory, from, to);
+            }
+            if (s != null) return taskRepository.findTop1000ByFactoryAndDeliveryAreaInAndStatusAndCreatedAtBetweenOrderByCreatedAtDesc(factory, areas, s, from, to);
+            return taskRepository.findTop1000ByFactoryAndDeliveryAreaInAndCreatedAtBetweenOrderByCreatedAtDesc(factory, areas, from, to);
         }
-        if (s != null) return taskRepository.findTop1000ByStatusOrderByCreatedAtDesc(s);
-        return taskRepository.findTop1000ByOrderByCreatedAtDesc();
+        if (dataScopeService.isGlobalAdmin()) {
+            if (s != null) return taskRepository.findTop1000ByStatusOrderByCreatedAtDesc(s);
+            return taskRepository.findTop1000ByOrderByCreatedAtDesc();
+        }
+        String factory = dataScopeService.currentFactory();
+        List<String> areas = dataScopeService.currentDeliveryAreas();
+        if (areas.isEmpty()) {
+            if (s != null) return taskRepository.findTop1000ByFactoryAndStatusOrderByCreatedAtDesc(factory, s);
+            return taskRepository.findTop1000ByFactoryOrderByCreatedAtDesc(factory);
+        }
+        if (s != null) return taskRepository.findTop1000ByFactoryAndDeliveryAreaInAndStatusOrderByCreatedAtDesc(factory, areas, s);
+        return taskRepository.findTop1000ByFactoryAndDeliveryAreaInOrderByCreatedAtDesc(factory, areas);
     }
 
     public Map<String, Object> printable() {
-        List<ReplenishmentTaskEntity> result = taskRepository
-                .findByStatusInAndPrintGeneratedFalseAndPrintJobNoIsNullOrderByCreatedAtAsc(
-                        List.of(TaskStatus.CREATED, TaskStatus.ACCEPTED, TaskStatus.PICKING, TaskStatus.PICKED));
+        List<TaskStatus> statuses = List.of(TaskStatus.CREATED, TaskStatus.ACCEPTED, TaskStatus.PICKING, TaskStatus.PICKED);
+        List<ReplenishmentTaskEntity> result;
+        if (dataScopeService.isGlobalAdmin()) {
+            result = taskRepository.findByStatusInAndPrintGeneratedFalseAndPrintJobNoIsNullOrderByCreatedAtAsc(statuses);
+        } else {
+            String factory = dataScopeService.currentFactory();
+            List<String> areas = dataScopeService.currentDeliveryAreas();
+            result = areas.isEmpty()
+                    ? taskRepository.findByFactoryAndStatusInAndPrintGeneratedFalseAndPrintJobNoIsNullOrderByCreatedAtAsc(factory, statuses)
+                    : taskRepository.findByFactoryAndDeliveryAreaInAndStatusInAndPrintGeneratedFalseAndPrintJobNoIsNullOrderByCreatedAtAsc(factory, areas, statuses);
+        }
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("items", result);
         body.put("total", result.size());
@@ -102,6 +131,7 @@ public class TaskService {
         lockService.execute("TASK:" + no, () -> {
             ReplenishmentTaskEntity t = taskRepository.findByTaskNoForUpdate(no)
                     .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "任务不存在：" + no));
+            dataScopeService.requireAccessFactoryArea(t.getFactory(), t.getDeliveryArea());
             if (t.getStatus() == TaskStatus.CANCELLED) return null;
             if (t.getStatus() == TaskStatus.COMPLETED) {
                 throw new BusinessException(ErrorCode.STATE_CONFLICT, "已完成任务不能取消；如标签未出纸，请在打印记录中补打");
@@ -171,6 +201,7 @@ public class TaskService {
     private ReplenishmentTaskEntity doAction(String taskNo, String action, TaskActionRequest req) {
         ReplenishmentTaskEntity t = taskRepository.findByTaskNoForUpdate(taskNo)
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "任务不存在：" + taskNo));
+        dataScopeService.requireAccessFactoryArea(t.getFactory(), t.getDeliveryArea());
         TaskStatus from = t.getStatus();
         if (req.expectedStatus != null && !req.expectedStatus.isBlank() && !Objects.equals(req.expectedStatus, from.name())) {
             throw new BusinessException(ErrorCode.STATE_CONFLICT, "任务状态已变化，页面状态=" + req.expectedStatus + "，当前状态=" + from.name() + "，请刷新后重试");

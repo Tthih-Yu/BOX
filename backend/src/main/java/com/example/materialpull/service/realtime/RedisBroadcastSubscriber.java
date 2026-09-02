@@ -35,9 +35,17 @@ public class RedisBroadcastSubscriber implements MessageListener {
             Envelope envelope = mapper.readValue(json, Envelope.class);
             // bodyJson 是已序列化的 JSON，反序列化为通用结构后转发，保留字段供前端消费
             Object body = mapper.readValue(envelope.bodyJson(), Object.class);
-            messagingTemplate.convertAndSend("/topic/" + envelope.topic(), body);
+            for (String destination : ScopeDestinations.forMessage(envelope.topic(), new RelayScope(
+                    envelope.factory(), envelope.deliveryArea()))) {
+                messagingTemplate.convertAndSend(destination, body);
+            }
         } catch (Exception e) {
             log.warn("Redis 广播转发失败：{}", e.getMessage());
         }
+    }
+
+    private record RelayScope(String factory, String deliveryArea) {
+        public String getFactory() { return factory; }
+        public String getDeliveryArea() { return deliveryArea; }
     }
 }

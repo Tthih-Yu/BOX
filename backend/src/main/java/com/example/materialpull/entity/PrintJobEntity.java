@@ -10,7 +10,8 @@ import java.time.LocalDateTime;
 @Table(name = "t_print_job", indexes = {
         @Index(name = "idx_print_job_no", columnList = "printJobNo", unique = true),
         @Index(name = "idx_print_task", columnList = "taskNo"),
-        @Index(name = "idx_print_status", columnList = "status")
+        @Index(name = "idx_print_status", columnList = "status"),
+        @Index(name = "idx_print_scope", columnList = "factory,deliveryArea")
 })
 public class PrintJobEntity {
     @Id @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -19,6 +20,8 @@ public class PrintJobEntity {
     private String printJobNo;
     /** 从任务继承的工厂快照；空值表示历史或未维护工厂。 */
     private String factory;
+    /** 从任务继承的配送区域快照；不从标签 areaCode 或请求参数推断。 */
+    private String deliveryArea;
     private String taskNo;
     private String labelCode;
     private String printType;

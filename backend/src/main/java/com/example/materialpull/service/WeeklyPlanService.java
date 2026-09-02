@@ -4,6 +4,7 @@ import com.example.materialpull.common.BusinessException;
 import com.example.materialpull.common.ErrorCode;
 import com.example.materialpull.common.IdGenerator;
 import com.example.materialpull.common.OperatorResolver;
+import com.example.materialpull.common.RequestContext;
 import com.example.materialpull.entity.*;
 import com.example.materialpull.enums.WeeklyPlanStatus;
 import com.example.materialpull.repository.*;
@@ -41,6 +42,7 @@ public class WeeklyPlanService {
     private final WeeklyPlanBatchRepository batchRepository;
     private final WeeklyPlanRowRepository rowRepository;
     private final WeeklyPlanShiftQtyRepository shiftRepository;
+    private final DataScopeService dataScopeService;
     private final DataFormatter dataFormatter = new DataFormatter();
 
     /** 固定列数：客户/生产工厂/项目/客户号/8D号/描述/标包/JPH/WH。白/夜从第10列(下标9)开始。 */
@@ -75,6 +77,9 @@ public class WeeklyPlanService {
             throw new BusinessException(ErrorCode.PARAM_ERROR, "周计划文件解析失败：" + e.getMessage());
         }
         if (parsed.rows.isEmpty()) throw new BusinessException(ErrorCode.PARAM_ERROR, "未解析到任何有效计划行，请检查模板格式");
+        String trustedFactory = resolveImportFactory(parsed);
+        parsed.factory = trustedFactory;
+        parsed.rows.forEach(row -> row.entity.setFactory(trustedFactory));
 
         // 冲突检测：同年份+周次+8D号已有其它批次的计划行。
         List<Map<String, Object>> conflicts = detectConflicts(parsed);
@@ -120,6 +125,7 @@ public class WeeklyPlanService {
         batch.setStatus(WeeklyPlanStatus.SUCCESS);
         batch.setFinishedAt(LocalDateTime.now());
         batchRepository.save(batch);
+        supersedeActiveBatches(batch);
 
         ImportResult r = new ImportResult();
         r.needConfirm = false;
@@ -133,7 +139,8 @@ public class WeeklyPlanService {
     }
 
     public List<WeeklyPlanBatchEntity> listBatches() {
-        return batchRepository.findTop200ByOrderByIdDesc();
+        if (dataScopeService.isGlobalAdmin()) return batchRepository.findTop200ByOrderByIdDesc();
+        return batchRepository.findTop200ByFactoryIgnoreCaseOrderByIdDesc(dataScopeService.currentFactory());
     }
 
     /**
@@ -225,9 +232,43 @@ public class WeeklyPlanService {
     public void deleteBatch(String batchNo) {
         WeeklyPlanBatchEntity batch = batchRepository.findByBatchNo(batchNo)
                 .orElseThrow(() -> new BusinessException(ErrorCode.PARAM_ERROR, "批次不存在：" + batchNo));
+        dataScopeService.requireAccessFactoryOnly(batch.getFactory());
         shiftRepository.deleteByBatchNo(batchNo);
         rowRepository.deleteByBatchNo(batchNo);
         batchRepository.delete(batch);
+    }
+
+    @Transactional(readOnly = true)
+    public org.springframework.data.domain.Page<WeeklyPlanRowEntity> rows(String batchNo, org.springframework.data.domain.Pageable pageable) {
+        WeeklyPlanBatchEntity batch = batchRepository.findByBatchNo(batchNo)
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "批次不存在：" + batchNo));
+        dataScopeService.requireAccessFactoryOnly(batch.getFactory());
+        return rowRepository.findByBatchNo(batchNo, pageable);
+    }
+
+    private String resolveImportFactory(ParseResult parsed) {
+        Set<String> fileFactories = parsed.rows.stream().map(row -> blankToNull(row.entity.getFactory()))
+                .filter(Objects::nonNull).collect(java.util.stream.Collectors.toCollection(LinkedHashSet::new));
+        if (dataScopeService.isGlobalAdmin()) {
+            if (fileFactories.size() != 1) throw new BusinessException(ErrorCode.PARAM_ERROR, "ADMIN 导入必须在文件生产工厂列明确且统一指定一个工厂");
+            return fileFactories.iterator().next();
+        }
+        String trusted = dataScopeService.currentFactory();
+        if (!fileFactories.isEmpty() && (fileFactories.size() != 1 || !trusted.equalsIgnoreCase(fileFactories.iterator().next()))) {
+            throw new BusinessException(ErrorCode.FORBIDDEN, "周计划文件工厂与当前账号工厂不一致");
+        }
+        return trusted;
+    }
+
+    private void supersedeActiveBatches(WeeklyPlanBatchEntity current) {
+        for (WeeklyPlanBatchEntity old : batchRepository.findByPlanYearAndWeekNoAndFactoryIgnoreCaseAndStatus(
+                current.getPlanYear(), current.getWeekNo(), current.getFactory(), WeeklyPlanStatus.SUCCESS)) {
+            if (Objects.equals(old.getId(), current.getId()) || Objects.equals(old.getBatchNo(), current.getBatchNo())) continue;
+            old.setStatus(WeeklyPlanStatus.FAILED);
+            old.setRemark("已被同工厂同年度周次的新批次 " + current.getBatchNo() + " 替代");
+            old.setFinishedAt(LocalDateTime.now());
+            batchRepository.save(old);
+        }
     }
 
     /** 导入结果：needConfirm=true 时为冲突待确认(未落库)，否则 batch 为已保存批次。 */

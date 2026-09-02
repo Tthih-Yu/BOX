@@ -43,8 +43,8 @@ public class MaterialMappingEntity {
     private String warehouseLocation;
     /** 总装送达地址（工位地址），例如 盲栓台-01-A02。直接透传到任务的 deliveryAddress/sendStationAddress 字段。 */
     private String deliveryAddress;
-    /** 配送区域。默认 1，用户可在“料号映射”页手动修改；用于仓库任务排序与定时按区域打标签。 */
-    private String deliveryArea = "1";
+    /** 配送区域。必须由可信输入明确提供，禁止使用默认值猜测归属。 */
+    private String deliveryArea;
     private String description;
     private Boolean enabled = true;
     private String remark;
@@ -67,7 +67,6 @@ public class MaterialMappingEntity {
         warehouseLocation = blankToNull(warehouseLocation);
         deliveryAddress = blankToNull(deliveryAddress);
         deliveryArea = blankToNull(deliveryArea);
-        if (deliveryArea == null) deliveryArea = "1";
         if (quantity == null) quantity = BigDecimal.ZERO;
         if (mappingOrder == null || mappingOrder <= 0) mappingOrder = 1;
         if (enabled == null) enabled = true;

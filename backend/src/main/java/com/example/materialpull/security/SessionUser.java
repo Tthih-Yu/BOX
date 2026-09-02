@@ -28,7 +28,9 @@ public class SessionUser {
      * 判断是否为全局管理员
      */
     public boolean isGlobalAdmin() {
-        return role == UserRole.ADMIN && factory == null;
+        return role == UserRole.ADMIN
+                && (factory == null || factory.isBlank())
+                && (deliveryAreas == null || deliveryAreas.isEmpty());
     }
     
     /**
@@ -40,7 +42,8 @@ public class SessionUser {
     
     /**
      * 从 AuthTokenService.SessionUser record 转换
-     * 暂时不加载范围，等待后续实现
+     * 必须完整复制 Session 中已经签发的范围；不能重新查询数据库，也不能丢弃范围。
+     * 后者会让受限 ADMIN 在未来调用此转换方法时被误判为全局管理员。
      */
     public static SessionUser fromTokenSession(com.example.materialpull.service.AuthTokenService.SessionUser tokenSession) {
         SessionUser user = new SessionUser();
@@ -49,9 +52,8 @@ public class SessionUser {
         user.setRealName(tokenSession.realName());
         user.setRole(tokenSession.role());
         user.setEnabled(true);
-        // TODO: 从数据库加载 factory 和 deliveryAreas
-        user.setFactory(null);
-        user.setDeliveryAreas(null);
+        user.setFactory(tokenSession.factory());
+        user.setDeliveryAreas(tokenSession.deliveryAreas() == null ? List.of() : List.copyOf(tokenSession.deliveryAreas()));
         return user;
     }
 }

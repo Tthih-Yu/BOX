@@ -18,7 +18,6 @@
       <article><span>扫码申请次数</span><b>{{ filteredTasks.length }}</b><small>成功落库，不去重</small></article>
       <article><span>有效申请次数</span><b>{{ validTasks.length }}</b><small>自动排除已取消</small></article>
       <article><span>涉及物料种数</span><b>{{ activeMaterialCount }}</b><small>当前筛选范围</small></article>
-      <article class="cancel"><span>取消次数</span><b>{{ cancelledTasks.length }}</b><small>历史保留，不计有效量</small></article>
     </section>
 
     <el-row :gutter="16">
@@ -29,7 +28,7 @@
       <el-col :xs="24" :lg="12"><section class="panel"><header><div><h3>活跃物料排行</h3><p>可切换扫码次数或同物料累计数量</p></div><el-radio-group v-model="materialRankMode" size="small" @change="renderCharts"><el-radio-button value="count">次数</el-radio-button><el-radio-button value="qty">数量</el-radio-button></el-radio-group></header><div ref="materialEl" class="chart"></div></section></el-col>
       <el-col :xs="24" :lg="12"><section class="panel"><header><div><h3>工位排行</h3><p>有效申请次数 TOP 10</p></div></header><div ref="stationEl" class="chart"></div></section></el-col>
       <el-col :xs="24" :lg="12"><section class="panel"><header><div><h3>配送区域分布</h3><p>有效申请次数</p></div></header><div ref="areaEl" class="chart"></div></section></el-col>
-      <el-col :xs="24" :lg="12"><section class="panel"><header><div><h3>取消分析</h3><p>取消次数与取消率</p></div></header><div ref="cancelEl" class="chart"></div></section></el-col>
+      <el-col :xs="24" :lg="12"><section class="panel"><header><div><h3>每日任务量趋势</h3><p>筛选时间区间内每日有效任务数，柱顶直接显示数量</p></div></header><div ref="cancelEl" class="chart"></div></section></el-col>
     </el-row>
 
     <section class="panel table-panel">
@@ -80,7 +79,7 @@ const norm=(v:any,fallback='未维护')=>String(v??'').trim()||fallback
 const factoryOf=(r:any)=>['弋江','三山'].includes(norm(r.factory,''))?norm(r.factory):'未维护工厂'
 const stationOf=(r:any)=>norm(r.stationCode||r.stationName||r.sendStationAddress||r.deliveryAddress,'未维护工位')
 const materialOf=(r:any)=>norm(r.materialCode||r.sourceLabelCode,'未维护物料')
-const areaOf=(r:any)=>norm(r.deliveryArea,'未分类')
+const areaOf=(r:any)=>norm(r.deliveryArea,'未分类').replace(/EOVA/g,'E0VA').replace(/EOY/g,'E0Y')
 const statusCn=(v:string)=>({CREATED:'已创建',ACCEPTED:'已接单',PICKING:'拣料中',PICKED:'拣料完成',DELIVERING:'配送中',ARRIVED:'已到达',COMPLETED:'已完成',CANCELLED:'已取消',EXCEPTION:'异常'} as any)[v]||v
 const filteredTasks=computed(()=>tasks.value.filter(r=>(!factoryFilter.value.length||factoryFilter.value.includes(factoryOf(r)))&&(!materialFilter.value.length||materialFilter.value.includes(materialOf(r)))&&(!stationFilter.value.length||stationFilter.value.includes(stationOf(r)))&&(!areaFilter.value.length||areaFilter.value.includes(areaOf(r)))&&(!statusFilter.value.length||statusFilter.value.includes(r.status))))
 const validTasks=computed(()=>filteredTasks.value.filter(r=>r.status!=='CANCELLED'))
@@ -116,12 +115,15 @@ function renderCharts(){
     const byDate=(list:any[])=>{const m=new Map(group(list,r=>String(r.createdAt||'').slice(0,10)).map(x=>[x.name,x.value]));return dates.map(d=>m.get(d)||0)}
     chart(trendEl.value,{tooltip:{trigger:'axis'},legend:{data:['申请','有效','取消']},grid:{left:45,right:20,bottom:45},xAxis:{type:'category',data:dates},yAxis:{type:'value',minInterval:1},series:[{name:'申请',type:'line',smooth:true,data:byDate(filteredTasks.value)},{name:'有效',type:'line',smooth:true,data:byDate(validTasks.value)},{name:'取消',type:'line',smooth:true,data:byDate(cancelledTasks.value)}]})
     const pie=(el:any,data:any[])=>chart(el,{tooltip:{trigger:'item'},legend:{bottom:0},series:[{type:'pie',radius:['42%','70%'],data}]})
-    pie(factoryEl.value,group(validTasks.value,factoryOf));pie(areaEl.value,group(validTasks.value,areaOf))
+    pie(factoryEl.value,group(validTasks.value,factoryOf));
+    chart(areaEl.value,{tooltip:{trigger:'item'},legend:{bottom:0},series:[{type:'pie',radius:['42%','70%'],data:group(validTasks.value,areaOf),label:{show:true,formatter:'{b}: {c}'},labelLine:{show:true}}]})
     const materialData=group(validTasks.value,materialOf,r=>materialRankMode.value==='qty'?Number(r.requestQty||0):1).sort((a,b)=>b.value-a.value).slice(0,10).reverse()
     const bar=(el:any,data:any[])=>chart(el,{tooltip:{trigger:'axis'},grid:{left:110,right:25,bottom:25,top:15},xAxis:{type:'value'},yAxis:{type:'category',data:data.map(x=>x.name)},series:[{type:'bar',data:data.map(x=>x.value),itemStyle:{borderRadius:[0,6,6,0]}}]})
     bar(materialEl.value,materialData);bar(stationEl.value,group(validTasks.value,stationOf).sort((a,b)=>b.value-a.value).slice(0,10).reverse())
-    const cancelByMaterial=group(filteredTasks.value,materialOf).map(total=>{const cancelled=cancelledTasks.value.filter(t=>materialOf(t)===total.name).length;return{name:total.name,value:cancelled,rate:total.value?cancelled*100/total.value:0}}).filter(x=>x.value).sort((a,b)=>b.value-a.value).slice(0,10).reverse()
-    chart(cancelEl.value,{tooltip:{trigger:'axis',formatter:(p:any)=>`${p[0]?.name}<br/>取消：${p[0]?.value||0}<br/>取消率：${p[1]?.value||0}%`},grid:{left:110,right:45,bottom:25,top:15},xAxis:[{type:'value',minInterval:1},{type:'value',max:100,axisLabel:{formatter:'{value}%'}}],yAxis:{type:'category',data:cancelByMaterial.map(x=>x.name)},series:[{name:'取消次数',type:'bar',data:cancelByMaterial.map(x=>x.value)},{name:'取消率',type:'line',xAxisIndex:1,data:cancelByMaterial.map(x=>Number(x.rate.toFixed(1)))}]})
+    const densityDates:string[]=[]; for(let d=start;d<=end;d=addDays(d,1)) densityDates.push(day(d))
+    const densityMap=new Map(group(validTasks.value,r=>String(r.createdAt||'').slice(0,10)).map(x=>[x.name,x.value]))
+    const density=densityDates.map(d=>Number(densityMap.get(d)||0))
+    chart(cancelEl.value,{tooltip:{trigger:'axis'},grid:{left:45,right:20,bottom:45,top:25},xAxis:{type:'category',data:densityDates,axisLabel:{rotate:densityDates.length>14?45:0}},yAxis:{type:'value',minInterval:1},series:[{name:'有效任务数',type:'bar',data:density,itemStyle:{color:'#0ea5e9',borderRadius:[5,5,0,0]},label:{show:true,position:'top',fontSize:11}},{name:'趋势',type:'line',data:density,smooth:true,symbol:'circle',symbolSize:5,lineStyle:{color:'#f97316',width:2},itemStyle:{color:'#f97316'}}]})
   })
 }
 const mappingKey=(m:any)=>norm(m.warehouseCode||m.warehouseMaterialCode||m.lineMaterialCode)

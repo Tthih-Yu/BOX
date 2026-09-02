@@ -42,7 +42,10 @@
             <el-form-item :label="c.label">
               <el-switch v-if="c.type==='boolean'" v-model="form[c.prop]" />
               <el-input-number v-else-if="c.type==='number'" v-model="form[c.prop]" class="full" />
-              <el-select v-else-if="c.options" v-model="form[c.prop]" class="full" clearable>
+              <template v-else-if="c.type==='multi-dialog'">
+                <el-button class="full area-summary" @click="openMultiDialog(c)">{{ selectedLabels(c).join('、') || '点击选择（可留空=全部）' }}</el-button>
+              </template>
+              <el-select v-else-if="c.options" v-model="form[c.prop]" class="full" clearable :multiple="Boolean(c.multiple)" collapse-tags collapse-tags-tooltip>
                 <el-option
                   v-for="o in c.options"
                   :key="typeof o === 'object' ? o.value : o"
@@ -51,6 +54,7 @@
                 />
               </el-select>
               <el-input v-else-if="c.type==='password'" v-model="form[c.prop]" type="password" show-password autocomplete="new-password" placeholder="留空则不修改" />
+              <el-input v-else-if="c.type==='textarea'" v-model="form[c.prop]" type="textarea" :rows="2" maxlength="500" show-word-limit />
               <el-input v-else v-model="form[c.prop]" />
             </el-form-item>
           </el-col>
@@ -60,6 +64,17 @@
         <el-button @click="dialog=false">取消</el-button>
         <el-button type="primary" @click="save">保存</el-button>
       </template>
+    </el-dialog>
+    <el-dialog v-model="multiDialog" title="选择配送区域" width="620px" append-to-body>
+      <el-input v-model="newOption" placeholder="手动新增区域后回车" @keyup.enter="addOption" clearable>
+        <template #append><el-button @click="addOption">新增</el-button></template>
+      </el-input>
+      <el-checkbox-group v-if="multiColumn" v-model="form[multiColumn.prop]" style="margin-top:16px;display:grid;grid-template-columns:repeat(2,1fr);gap:8px">
+        <el-checkbox v-for="o in multiColumn.options" :key="typeof o === 'object' ? o.value : o" :label="typeof o === 'object' ? o.value : o">
+          {{ typeof o === 'object' ? o.label : o }}
+        </el-checkbox>
+      </el-checkbox-group>
+      <template #footer><el-button @click="multiDialog=false">完成</el-button></template>
     </el-dialog>
   </div>
 </template>
@@ -76,6 +91,9 @@ const total = ref(0)
 let searchTimer:number | undefined
 let loadSequence = 0
 const dialog = ref(false)
+const multiDialog = ref(false)
+const multiColumn = ref<any>(null)
+const newOption = ref('')
 const form = ref<any>({})
 const visibleColumns = computed(() => props.columns.filter(c => !c.hiddenInTable && c.type !== 'password'))
 const editableColumns = computed(() => props.columns.filter(c => !c.readonly))
@@ -92,9 +110,21 @@ const filtered = computed(() => {
 })
 function optionLabel(col: any, val: any): string {
   if (!col.options || val == null) return val ?? ''
+  if (Array.isArray(val)) return val.map(v => optionLabel(col, v)).join('、')
   const match = col.options.find((o: any) => (typeof o === 'object' ? o.value : o) === val)
   if (!match) return val
   return typeof match === 'object' ? match.label : match
+}
+function selectedLabels(col:any){ return (form.value[col.prop] || []).map((v:any) => optionLabel(col, v)) }
+function openMultiDialog(col:any){ multiColumn.value = col; multiDialog.value = true; newOption.value = '' }
+function addOption(){
+  const value = newOption.value.trim()
+  if (!value || !multiColumn.value) return
+  const col = multiColumn.value
+  if (!(col.options || []).some((o:any) => (typeof o === 'object' ? o.value : o) === value)) col.options.push({ label: value, value })
+  if (!Array.isArray(form.value[col.prop])) form.value[col.prop] = []
+  if (!form.value[col.prop].includes(value)) form.value[col.prop].push(value)
+  newOption.value = ''
 }
 async function load(){
   const sequence = ++loadSequence
@@ -116,7 +146,13 @@ watch(keyword, () => {
   searchTimer = window.setTimeout(() => { page.value = 1; load() }, 300)
 })
 defineExpose({ load })
-function openEdit(row:any){ if (!canWrite.value) return; form.value = JSON.parse(JSON.stringify(row || {})); if ('password' in form.value) form.value.password = ''; dialog.value = true }
+function openEdit(row:any){
+  if (!canWrite.value) return
+  form.value = JSON.parse(JSON.stringify(row || {}))
+  if ('password' in form.value) form.value.password = ''
+  for (const c of props.columns) if (c.multiple && !Array.isArray(form.value[c.prop])) form.value[c.prop] = []
+  dialog.value = true
+}
 async function save(){ if (!canWrite.value) return; await post(props.saveUrl, form.value); dialog.value=false; ElMessage.success('已保存'); load() }
 async function remove(row:any){
   if (!canWrite.value) return
@@ -129,3 +165,6 @@ async function remove(row:any){
 onMounted(load)
 onUnmounted(() => { if (searchTimer) window.clearTimeout(searchTimer) })
 </script>
+<style scoped>
+.area-summary{display:block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:left}
+</style>

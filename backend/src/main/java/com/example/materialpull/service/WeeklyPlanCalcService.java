@@ -39,6 +39,7 @@ public class WeeklyPlanCalcService {
     private final SimpleBomRepository bomRepository;
     private final SimpleBomService simpleBomService;
     private final MaterialMappingRepository mappingRepository;
+    private final DataScopeService dataScopeService;
 
     /**
      * 按「某一天」刷新料号映射数量。`quantity` 的语义是**当天用量**(该日白班 + 夜班)，不是整周总量，
@@ -52,52 +53,71 @@ public class WeeklyPlanCalcService {
      */
     @Transactional
     public CalcResult calculate(LocalDate planDate, boolean apply) {
+        String factory = dataScopeService.isGlobalAdmin() ? null : dataScopeService.currentFactory();
+        return calculateInternal(planDate, apply, factory);
+    }
+
+    /** Scheduler 专用：显式按所有工厂分别计算，不依赖请求上下文。 */
+    @Transactional
+    public CalcResult calculateSystem(LocalDate planDate, boolean apply) {
+        return calculateInternal(planDate, apply, null);
+    }
+
+    private CalcResult calculateInternal(LocalDate planDate, boolean apply, String requestedFactory) {
         if (planDate == null) throw new BusinessException(ErrorCode.PARAM_ERROR, "请指定要计算的日期");
         CalcResult result = new CalcResult();
         result.planDate = planDate;
 
         // 1) 当天各 8D 号(物料)的数量 = 白班 + 夜班。
-        List<Object[]> daily = shiftRepository.sumByProductCodeOnDate(planDate);
+        List<Object[]> daily = requestedFactory == null
+                ? shiftRepository.sumByFactoryAndProductCodeOnDate(planDate)
+                : shiftRepository.sumByFactoryAndProductCodeOnDate(planDate, requestedFactory);
         if (daily.isEmpty()) throw new BusinessException(ErrorCode.PARAM_ERROR, planDate + " 没有周计划数据，请先上传包含该日期的周计划");
 
         SimpleBomBatchEntity activeBom = simpleBomService.activeBatch();
         if (activeBom == null) throw new BusinessException(ErrorCode.PARAM_ERROR, "当前没有有效的 BOM 批次，请先在简单BOM页启用一个批次");
         String bomBatch = activeBom.getBatchNo();
 
-        Map<String, BigDecimal> materialPlanQty = new LinkedHashMap<>();
+        Map<FactoryMaterial, BigDecimal> materialPlanQty = new LinkedHashMap<>();
         for (Object[] row : daily) {
-            String code = (String) row[0];
-            BigDecimal qty = row[1] == null ? BigDecimal.ZERO : new BigDecimal(row[1].toString());
+            String factory = normalize((String) row[0]);
+            String code = normalize((String) row[1]);
+            BigDecimal qty = row[2] == null ? BigDecimal.ZERO : new BigDecimal(row[2].toString());
+            if (factory == null || code == null) {
+                result.warnings.add("周计划存在空工厂或空产品编码，已跳过");
+                continue;
+            }
             if (qty.compareTo(BigDecimal.ZERO) <= 0) continue; // 当天不排产，不参与计算
-            materialPlanQty.merge(code, qty, BigDecimal::add);
+            materialPlanQty.merge(new FactoryMaterial(factory, code), qty, BigDecimal::add);
         }
         if (materialPlanQty.isEmpty()) throw new BusinessException(ErrorCode.PARAM_ERROR, planDate + " 当天所有数量为 0（未排产），不做任何刷新");
 
         // 2) 物料 -> 组件(活跃BOM)；多个物料共用同一组件时累加。BOM 缺组件只记提示。
-        Map<String, BigDecimal> componentPlanQty = new LinkedHashMap<>();
-        for (Map.Entry<String, BigDecimal> e : materialPlanQty.entrySet()) {
-            String material = e.getKey();
+        Map<FactoryMaterial, BigDecimal> componentPlanQty = new LinkedHashMap<>();
+        for (Map.Entry<FactoryMaterial, BigDecimal> e : materialPlanQty.entrySet()) {
+            String material = e.getKey().code();
             BigDecimal qty = e.getValue();
             List<SimpleBomEntity> components = bomRepository.findByBatchNoAndMaterialCode(bomBatch, material);
             if (components.isEmpty()) {
-                result.warnings.add("物料 " + material + " 在当前BOM中找不到组件，已跳过（原数量保持不动）");
+                result.warnings.add("工厂 " + e.getKey().factory() + " 物料 " + material + " 在当前BOM中找不到组件，已跳过（原数量保持不动）");
                 continue;
             }
             for (SimpleBomEntity c : components) {
-                componentPlanQty.merge(c.getComponentCode(), qty, BigDecimal::add);
+                componentPlanQty.merge(new FactoryMaterial(e.getKey().factory(), c.getComponentCode()), qty, BigDecimal::add);
             }
         }
 
         // 3) 组件 -> 料号映射；当天用量 × 单根用量 = 当天需求量。
         //    单根用量空或 ≤0 = 员工还没维护，跳过不算（否则 ×0 会把数量刷成 0，现场按 0 拉料）。
         List<MappingUpdate> updates = new ArrayList<>();
-        for (Map.Entry<String, BigDecimal> e : componentPlanQty.entrySet()) {
-            String component = e.getKey();
+        for (Map.Entry<FactoryMaterial, BigDecimal> e : componentPlanQty.entrySet()) {
+            String component = e.getKey().code();
             BigDecimal planQty = e.getValue();
             List<MaterialMappingEntity> mappings =
-                    mappingRepository.findByLineMaterialCodeAndEnabledTrueOrderByMappingOrderAscIdAsc(component);
+                    mappingRepository.findByFactoryIgnoreCaseAndLineMaterialCodeAndEnabledTrueOrderByMappingOrderAscIdAsc(
+                            e.getKey().factory(), component);
             if (mappings.isEmpty()) {
-                result.warnings.add("组件 " + component + " 找不到料号映射，已跳过");
+                result.warnings.add("工厂 " + e.getKey().factory() + " 组件 " + component + " 找不到料号映射，已跳过");
                 continue;
             }
             for (MaterialMappingEntity m : mappings) {
@@ -117,6 +137,7 @@ public class WeeklyPlanCalcService {
         for (MappingUpdate u : updates) {
             Map<String, Object> line = new LinkedHashMap<>();
             line.put("lineMaterialCode", u.mapping.getLineMaterialCode());
+            line.put("factory", u.mapping.getFactory());
             line.put("warehouseCode", u.mapping.getWarehouseCode());
             line.put("mappingOrder", u.mapping.getMappingOrder());
             line.put("singleUnitUsage", u.mapping.getSingleUnitUsage());
@@ -136,6 +157,9 @@ public class WeeklyPlanCalcService {
     }
 
     private record MappingUpdate(MaterialMappingEntity mapping, BigDecimal demand) {}
+    private record FactoryMaterial(String factory, String code) {}
+
+    private String normalize(String value) { return value == null || value.isBlank() ? null : value.trim(); }
 
     public static class CalcResult {
         /** 计算的是哪一天的用量。 */

@@ -19,7 +19,7 @@ CREATE TABLE IF NOT EXISTS sys_user_delivery_area (
     UNIQUE KEY uk_user_area (user_id, delivery_area),
     INDEX idx_user_id (user_id),
     INDEX idx_delivery_area (delivery_area)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='用户配送区域关联表';
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='用户配送区域关联表';
 
 -- 3. 创建工厂字典表
 CREATE TABLE IF NOT EXISTS sys_factory (
@@ -30,7 +30,7 @@ CREATE TABLE IF NOT EXISTS sys_factory (
     display_order INT DEFAULT 0 COMMENT '显示顺序',
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='工厂字典表';
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='工厂字典表';
 
 -- 4. 创建配送区域字典表
 CREATE TABLE IF NOT EXISTS sys_delivery_area (
@@ -44,7 +44,7 @@ CREATE TABLE IF NOT EXISTS sys_delivery_area (
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     UNIQUE KEY uk_factory_area (factory_code, area_code),
     INDEX idx_factory (factory_code)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='配送区域字典表';
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='配送区域字典表';
 
 -- 5. 初始化工厂数据
 INSERT INTO sys_factory (factory_code, factory_name, enabled, display_order) VALUES

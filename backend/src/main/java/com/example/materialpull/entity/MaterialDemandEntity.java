@@ -20,6 +20,7 @@ public class MaterialDemandEntity {
     @Id @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
     @Version private Long version;
+    private String factory;
     private String demandNo;
     private String planNo;
     private String sourceType = "PPC_PLAN";

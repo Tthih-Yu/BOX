@@ -32,7 +32,7 @@
     <section class="pending-panel">
       <div class="pending-head">
         <div>
-          <h3>待打印补货任务</h3><p>按工厂与配送分类处理尚未生成打印作业的任务</p>
+          <h3>待打印补货任务</h3><p>{{ showScopeSwitcher ? '按工厂与配送分类处理尚未生成打印作业的任务' : '仅显示当前账号已授权区域内尚未生成打印作业的任务' }}</p>
         </div>
         <div class="pending-actions">
           <el-tag type="warning" effect="plain">共 {{ filteredRows.length }} 条待生成</el-tag>
@@ -41,7 +41,7 @@
           <el-button size="small" @click="loadPending">刷新待打印</el-button>
         </div>
       </div>
-      <div class="scope-switcher">
+      <div v-if="showScopeSwitcher" class="scope-switcher">
         <div class="scope-track factory-track">
           <span class="scope-label">工厂：</span>
           <button v-for="factory in availableFactories" :key="factory.key" type="button" class="scope-chip" :class="{ active: selectedFactoryKey === factory.key }" @click="selectFactory(factory.key)">{{ factory.label }} {{ factory.count }}</button>
@@ -54,7 +54,7 @@
       <el-alert v-if="!currentRows.length" type="info" :closable="false" :title="rawRows.length ? '当前工厂和区域没有匹配的待打印标签' : '暂无待打印标签'" style="margin-bottom:10px" />
       <section v-else class="current-scope">
           <div class="station-title">
-            <div><b>当前：{{ selectedFactoryLabel }} / {{ selectedAreaLabel }}</b><span>{{ currentRows.length }} 张标签</span></div>
+            <div><b v-if="showScopeSwitcher">当前：{{ selectedFactoryLabel }} / {{ selectedAreaLabel }}</b><span>{{ currentRows.length }} 张标签</span></div>
             <div class="group-actions">
               <el-button size="small" type="primary" plain :loading="batchPrinting" @click="printRows(currentRows, `已调起本区域打印`)">打印本区域</el-button>
               <el-button size="small" type="success" plain :disabled="!printerName.trim()" :loading="batchSubmitting" @click="submitRows(currentRows, `已提交本区域`)">提交本区域</el-button>
@@ -128,8 +128,10 @@
       </div>
       <el-table :data="records" border stripe size="small" height="360">
         <el-table-column label="工厂" width="110"><template #default="{row}">{{ factoryName(row) }}</template></el-table-column>
-        <el-table-column prop="taskNo" label="任务号" min-width="220" show-overflow-tooltip />
-        <el-table-column prop="printJobNo" label="打印作业号" min-width="200" show-overflow-tooltip />
+        <el-table-column prop="materialCode" label="料号" min-width="150" show-overflow-tooltip />
+        <el-table-column prop="warehouseAddress" label="仓储地址" min-width="150" show-overflow-tooltip />
+        <el-table-column prop="deliveryAddress" label="总装地址" min-width="150" show-overflow-tooltip />
+        <el-table-column prop="deliveryArea" label="配送区域" width="110" show-overflow-tooltip />
         <el-table-column label="打印方式" width="120">
           <template #default="{row}">
             <el-tag :type="row.printChannel==='BROWSER' ? 'warning' : 'primary'" size="small">{{ channelCn(row.printChannel) }}</el-tag>
@@ -227,6 +229,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { get, post, tagType } from '../api'
+import { getLoginUser } from '../auth'
 import { ElMessage } from 'element-plus'
 import { runtimePrinterName, saveRuntimePrinterName } from '../config'
 import WarehouseLabel from '../components/WarehouseLabel.vue'
@@ -244,6 +247,16 @@ type SortMode = 'pinyin'|'alnum'|'timeAsc'|'timeDesc'|'warehouseAsc'|'warehouseD
 const ALL_AREAS = '__all__'
 const selectedFactoryKey = ref<string>('')
 const selectedAreaKey = ref<string>(ALL_AREAS)
+// 仓库员恢复工厂/配送区域筛选；后端仍按账号范围过滤，按钮不会扩大权限。
+// ADMIN/SYSTEM 即使被维护了范围，仍保留完整入口。
+const showScopeSwitcher = computed(() => {
+  const user = getLoginUser()
+  const role = String(user.role || '').toUpperCase()
+  if (role === 'ADMIN' || role === 'SYSTEM' || role === 'WAREHOUSE') return true
+  return !String(user.factory || '').trim()
+    || !Array.isArray(user.deliveryAreas)
+    || !user.deliveryAreas.some(area => String(area || '').trim())
+})
 const defaultGroupSort = ref<SortMode>('pinyin')
 const groupingMode = ref<'area'|'address'>('area')
 const groupSortMap = ref<Record<string, SortMode>>({})
@@ -286,7 +299,7 @@ async function loadRecords(){
       ...(recordStatus.value ? { status: recordStatus.value } : {}),
       ...(recordChannel.value ? { channel: recordChannel.value } : {})
     })
-    records.value = Array.isArray(result?.items) ? result.items : []
+    records.value = Array.isArray(result?.items) ? result.items.map(normalizePrintRecord) : []
     recordTotal.value = Number(result?.total || 0)
   } catch (e:any) {
     ElMessage.error(e?.response?.data?.message || e?.message || '读取打印记录失败')
@@ -339,6 +352,16 @@ function recordLabelRow(record:any){
     sendStationAddress: snapshot.sendStationAddress || snapshot.to,
     deliveryAddress: snapshot.to || snapshot.sendStationAddress,
     labelUsageType: snapshot.labelUsageType || snapshot.usageType
+  }
+}
+function normalizePrintRecord(record:any){
+  const label = recordLabelRow(record)
+  return {
+    ...record,
+    materialCode: previewField(label, 'materialCode', 'warehouseMaterialCode'),
+    warehouseAddress: previewField(label, 'warehouseAddress', 'warehouseLocation', 'from'),
+    deliveryAddress: previewField(label, 'sendStationAddress', 'deliveryAddress', 'to', 'stationName', 'stationCode'),
+    deliveryArea: previewField(label, 'deliveryArea')
   }
 }
 async function reprintRecord(record:any){

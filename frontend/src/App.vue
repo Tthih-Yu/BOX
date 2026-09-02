@@ -53,6 +53,9 @@
           <el-tag type="success">加固版 {{ APP_CONFIG.version }}</el-tag>
           <el-tag>{{ loginUser }}</el-tag>
           <el-tag>{{ loginRoleLabel }}</el-tag>
+          <el-tooltip :content="scopeDetail" placement="bottom">
+            <el-tag type="warning">{{ scopeLabel }}</el-tag>
+          </el-tooltip>
           <el-button link type="primary" @click="logout">退出</el-button>
         </div>
       </el-header>
@@ -72,6 +75,15 @@ const current = computed(() => getLoginUser())
 const routeTitle = computed(() => getRouteTitle(route.path))
 const loginUser = computed(() => current.value.realName || current.value.username || '已登录')
 const loginRoleLabel = computed(() => current.value.roleLabel || current.value.role || '未知角色')
+const scopeLabel = computed(() => {
+  if (current.value.role === 'ADMIN' && !current.value.factory) return '全局范围'
+  return current.value.factory || '未配置范围'
+})
+const scopeDetail = computed(() => {
+  if (current.value.role === 'ADMIN' && !current.value.factory) return '全局管理员：可访问全部工厂和配送区域'
+  const areas = current.value.deliveryAreas || []
+  return `工厂：${current.value.factory || '未配置'}；配送区域：${areas.length ? areas.join('、') : '未配置'}`
+})
 function can(path:string){ return canRoute(path) }
 function canAny(paths:string[]){ return canAnyRoute(paths) }
 function logout(){ localStorage.removeItem('token'); localStorage.removeItem('loginUser'); resetMenuWhitelist(); router.push('/login') }

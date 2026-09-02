@@ -22,6 +22,7 @@ public class MaterialUsageDashboardService {
     private static final ZoneId BUSINESS_ZONE = ZoneId.of("Asia/Shanghai");
     private final ReplenishmentTaskRepository taskRepository;
     private final MaterialMappingRepository mappingRepository;
+    private final DataScopeService dataScopeService;
 
     @Transactional(readOnly = true)
     public Map<String, Object> dashboard(String from, String to) {
@@ -30,8 +31,17 @@ public class MaterialUsageDashboardService {
         if (start.isAfter(end)) throw new BusinessException(ErrorCode.PARAM_ERROR, "开始日期不能晚于结束日期");
         LocalDateTime startAt = start.atStartOfDay();
         LocalDateTime endExclusive = end.plusDays(1).atStartOfDay();
-        List<ReplenishmentTaskEntity> tasks = taskRepository.findByCreatedAtBetweenOrderByCreatedAtDesc(startAt, endExclusive);
-        List<MaterialMappingEntity> mappings = mappingRepository.findAllByOrderByLineMaterialCodeAscMappingOrderAscIdAsc();
+        boolean global = dataScopeService.isGlobalAdmin();
+        String factory = global ? null : dataScopeService.currentFactory();
+        List<String> areas = global ? List.of() : dataScopeService.currentDeliveryAreas();
+        List<ReplenishmentTaskEntity> tasks = global
+                ? taskRepository.findByCreatedAtBetweenOrderByCreatedAtDesc(startAt, endExclusive)
+                : taskRepository.findByFactoryIgnoreCaseAndDeliveryAreaInAndCreatedAtBetweenOrderByCreatedAtDesc(
+                        factory, areas, startAt, endExclusive);
+        List<MaterialMappingEntity> mappings = global
+                ? mappingRepository.findAllByOrderByLineMaterialCodeAscMappingOrderAscIdAsc()
+                : mappingRepository.findByFactoryIgnoreCaseAndDeliveryAreaInOrderByLineMaterialCodeAscMappingOrderAscIdAsc(
+                        factory, areas);
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("from", start);
         result.put("to", end);

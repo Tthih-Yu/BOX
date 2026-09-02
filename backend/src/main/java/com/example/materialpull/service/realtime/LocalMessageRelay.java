@@ -18,6 +18,8 @@ public class LocalMessageRelay implements MessageRelay {
 
     @Override
     public void relay(String topic, Object body) {
-        messagingTemplate.convertAndSend("/topic/" + topic, body);
+        for (String destination : ScopeDestinations.forMessage(topic, body)) {
+            messagingTemplate.convertAndSend(destination, body);
+        }
     }
 }

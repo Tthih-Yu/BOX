@@ -32,7 +32,7 @@ public class AuthTokenFilter extends OncePerRequestFilter {
         String path = request.getServletPath();
         if ("OPTIONS".equalsIgnoreCase(request.getMethod())) return true;
         if (path == null) return true;
-        if (path.equals("/auth/login") || path.equals("/health/ready")) return true;
+        if (path.equals("/auth/login") || path.equals("/device/login") || path.equals("/health/ready")) return true;
         // 健康探针始终放行（容器/K8s liveness/readiness 依赖）；show-details=when_authorized 不泄露细节。
         if (path.equals("/actuator/health") || path.startsWith("/actuator/health/")) return true;
         // 其余 /actuator/**（prometheus/metrics/info 等）不在此放行，交由 doFilterInternal 做应用层防护。
@@ -165,6 +165,7 @@ public class AuthTokenFilter extends OncePerRequestFilter {
         String username = employeeNo != null ? ("device-" + employeeNo) : (deviceNo != null ? ("device-" + deviceNo) : "android-device");
         String realName = employeeNo != null ? ("工号 " + employeeNo) : "现场设备";
         bindRequestUser(request, null, username, realName, UserRole.LINE);
+        RequestContext.setTrustedScanner(true);
         return true;
     }
 
@@ -181,6 +182,7 @@ public class AuthTokenFilter extends OncePerRequestFilter {
         String supplied = request.getHeader("X-Api-Key");
         if (!Objects.equals(configured, supplied)) return false;
         bindRequestUser(request, null, "external-system", "外部系统", UserRole.SYSTEM);
+        if (path.startsWith("/scan/")) RequestContext.setTrustedScanner(true);
         return true;
     }
 
@@ -213,6 +215,8 @@ public class AuthTokenFilter extends OncePerRequestFilter {
         request.setAttribute("loginUser", username);
         request.setAttribute("loginRealName", realName);
         request.setAttribute("loginRole", role == null ? null : role.name());
+        request.setAttribute("loginFactory", factory);
+        request.setAttribute("loginDeliveryAreas", deliveryAreas == null ? java.util.List.of() : java.util.List.copyOf(deliveryAreas));
     }
     
     private void bindRequestUser(HttpServletRequest request, Long userId, String username, String realName, UserRole role) {

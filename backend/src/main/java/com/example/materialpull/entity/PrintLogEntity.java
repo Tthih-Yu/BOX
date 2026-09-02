@@ -7,7 +7,9 @@ import java.time.LocalDateTime;
 
 @Data
 @Entity
-@Table(name = "log_print")
+@Table(name = "log_print", indexes = {
+        @Index(name = "idx_print_log_created_id", columnList = "createdAt,id")
+})
 public class PrintLogEntity {
     @Id @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;

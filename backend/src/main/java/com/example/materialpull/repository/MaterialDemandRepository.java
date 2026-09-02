@@ -10,4 +10,6 @@ public interface MaterialDemandRepository extends JpaRepository<MaterialDemandEn
     List<MaterialDemandEntity> findByPlanNo(String planNo);
     boolean existsByPlanNo(String planNo);
     List<MaterialDemandEntity> findByStatus(DemandStatus status);
+    List<MaterialDemandEntity> findTop1000ByFactoryIgnoreCaseOrderByIdDesc(String factory);
+    List<MaterialDemandEntity> findByFactoryIgnoreCaseAndStatusOrderByIdDesc(String factory, DemandStatus status);
 }

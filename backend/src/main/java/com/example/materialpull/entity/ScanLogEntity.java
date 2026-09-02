@@ -9,7 +9,11 @@ import java.time.LocalDateTime;
 @Entity
 @Table(name = "log_scan", indexes = {
         @Index(name = "idx_scan_label", columnList = "labelCode"),
-        @Index(name = "idx_scan_time", columnList = "scanAt")
+        @Index(name = "idx_scan_time", columnList = "scanAt"),
+        @Index(name = "idx_scan_scope", columnList = "factory,deliveryArea"),
+        @Index(name = "idx_scan_time_id", columnList = "scanAt,id"),
+        @Index(name = "idx_scan_label_time_id", columnList = "labelCode,scanAt,id"),
+        @Index(name = "idx_scan_scope_time_id", columnList = "factory,deliveryArea,scanAt,id")
 })
 public class ScanLogEntity {
     @Id @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -23,6 +27,8 @@ public class ScanLogEntity {
     private String deviceNo;
     private String stationCode;
     private String materialCode;
+    private String factory;
+    private String deliveryArea;
     private LocalDateTime scanAt;
     @PrePersist public void prePersist(){ if(scanAt == null) scanAt = LocalDateTime.now(); }
 }

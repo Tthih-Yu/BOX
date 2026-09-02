@@ -5,6 +5,8 @@ export interface LoginUser {
   realName?: string
   role?: UserRole
   roleLabel?: string
+  factory?: string | null
+  deliveryAreas?: string[]
 }
 
 export function getLoginUser(): LoginUser {

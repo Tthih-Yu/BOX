@@ -14,14 +14,14 @@ import java.util.List;
 @RestController
 @RequestMapping("/box-pool")
 @RequiredArgsConstructor
-@RequireRoles({UserRole.WAREHOUSE, UserRole.LINE, UserRole.PLANNER, UserRole.VIEWER})
+@RequireRoles({UserRole.ADMIN, UserRole.WAREHOUSE, UserRole.LINE, UserRole.PLANNER, UserRole.VIEWER})
 public class BoxPoolController {
     private final BoxPoolService service;
 
     @GetMapping public ApiResponse<List<BoxPoolEntity>> list(@RequestParam(required = false) String status) { return ApiResponse.ok(service.list(status)); }
 
     @PostMapping
-    @RequireRoles({UserRole.WAREHOUSE})
+    @RequireRoles({UserRole.ADMIN})
     public ApiResponse<BoxPoolEntity> save(@RequestBody BoxPoolEntity e) { return ApiResponse.ok(service.save(e)); }
 
     @PostMapping("/{containerNo}/return-empty")

@@ -16,20 +16,34 @@ import java.util.*;
 public class BoxPoolService {
     private final BoxPoolRepository boxPoolRepository;
     private final RealtimePushService pushService;
+    private final ReplenishmentTaskRepository taskRepository;
+    private final DataScopeService dataScopeService;
 
     public List<BoxPoolEntity> list(String status) {
-        if (status == null || status.isBlank()) return boxPoolRepository.findTop1000ByOrderByUpdatedAtDesc();
+        List<BoxPoolEntity> boxes;
+        if (status == null || status.isBlank()) boxes = boxPoolRepository.findTop1000ByOrderByUpdatedAtDesc();
+        else {
         BoxPoolStatus s;
         try {
             s = BoxPoolStatus.valueOf(status.trim().toUpperCase(Locale.ROOT));
         } catch (IllegalArgumentException e) {
             throw new BusinessException(ErrorCode.PARAM_ERROR, "未知容器状态：" + status);
         }
-        return boxPoolRepository.findTop1000ByStatusOrderByUpdatedAtDesc(s);
+        boxes = boxPoolRepository.findTop1000ByStatusOrderByUpdatedAtDesc(s);
+        }
+        if (dataScopeService.isGlobalAdmin()) return boxes;
+        Map<String, ReplenishmentTaskEntity> tasks = taskRepository.findByTaskNoIn(
+                boxes.stream().map(BoxPoolEntity::getTaskNo).filter(Objects::nonNull).distinct().toList()).stream()
+                .collect(java.util.stream.Collectors.toMap(ReplenishmentTaskEntity::getTaskNo, t -> t, (a, b) -> a));
+        return boxes.stream().filter(box -> {
+            ReplenishmentTaskEntity task = tasks.get(box.getTaskNo());
+            return task != null && dataScopeService.canAccessFactoryArea(task.getFactory(), task.getDeliveryArea());
+        }).toList();
     }
 
     @Transactional
     public BoxPoolEntity save(BoxPoolEntity box) {
+        dataScopeService.requireGlobalAdmin();
         if (box == null) throw new BusinessException(ErrorCode.PARAM_ERROR, "容器不能为空");
         if (box.getContainerNo() == null || box.getContainerNo().isBlank()) box.setContainerNo(IdGenerator.id("BOXPOOL"));
         if (box.getStatus() == null) box.setStatus(BoxPoolStatus.AVAILABLE);
@@ -63,7 +77,7 @@ public class BoxPoolService {
         box.setLockedFlag(true);
         box.setLastAllocatedAt(LocalDateTime.now());
         boxPoolRepository.save(box);
-        pushService.publish("boxPool", box);
+        publish(box, task);
         return box;
     }
 
@@ -73,7 +87,7 @@ public class BoxPoolService {
             box.setStatus(BoxPoolStatus.IN_TRANSIT);
             box.setCurrentLocation("AGV配送中");
             boxPoolRepository.save(box);
-            pushService.publish("boxPool", box);
+            publish(box, task);
         }
     }
 
@@ -86,7 +100,7 @@ public class BoxPoolService {
             box.setLockedFlag(false);
             box.setCycleCount((box.getCycleCount() == null ? 0 : box.getCycleCount()) + 1);
             boxPoolRepository.save(box);
-            pushService.publish("boxPool", box);
+            publish(box, task);
         }
     }
 
@@ -101,6 +115,13 @@ public class BoxPoolService {
             created.setRemark("现场回收时自动建档，操作人=" + firstNonBlank(operator, OperatorResolver.systemOperator()));
             return created;
         });
+        if (box.getId() != null) requireBoxAccess(box);
+        ReplenishmentTaskEntity targetTask = null;
+        if (taskNo != null && !taskNo.isBlank()) {
+            targetTask = taskRepository.findByTaskNo(taskNo).orElseThrow(
+                    () -> new BusinessException(ErrorCode.NOT_FOUND, "任务不存在：" + taskNo));
+            dataScopeService.requireAccessFactoryArea(targetTask.getFactory(), targetTask.getDeliveryArea());
+        }
         box.setTaskNo(taskNo);
         box.setStatus(BoxPoolStatus.EMPTY_RETURNING);
         box.setCurrentLocation(firstNonBlank(location, "AGV空盒回库中"));
@@ -108,13 +129,14 @@ public class BoxPoolService {
         box.setLastReturnedAt(LocalDateTime.now());
         box.setRemark("空盒回收扫码，操作人=" + firstNonBlank(operator, OperatorResolver.systemOperator()));
         boxPoolRepository.save(box);
-        pushService.publish("boxPool", box);
+        publish(box, targetTask);
         return box;
     }
 
     @Transactional
     public void releaseByTaskNo(String taskNo, String operator) {
         if (taskNo == null || taskNo.isBlank()) return;
+        ReplenishmentTaskEntity task = taskRepository.findByTaskNo(taskNo).orElse(null);
         for (BoxPoolEntity box : boxPoolRepository.findByTaskNo(taskNo)) {
             box.setTaskNo(null);
             box.setStatus(BoxPoolStatus.AVAILABLE);
@@ -122,7 +144,7 @@ public class BoxPoolService {
             box.setLockedFlag(false);
             box.setRemark("任务取消释放周转箱，操作人=" + firstNonBlank(operator, OperatorResolver.systemOperator()));
             boxPoolRepository.save(box);
-            pushService.publish("boxPool", box);
+            publish(box, task);
         }
     }
 
@@ -130,6 +152,7 @@ public class BoxPoolService {
     public BoxPoolEntity backToWarehouse(String containerNo, String location) {
         BoxPoolEntity box = boxPoolRepository.findByContainerNoForUpdate(containerNo)
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "容器不存在：" + containerNo));
+        requireBoxAccess(box);
         box.setTaskNo(null);
         box.setStatus(BoxPoolStatus.AVAILABLE);
         box.setCurrentLocation(firstNonBlank(location, "仓库空箱区"));
@@ -142,6 +165,28 @@ public class BoxPoolService {
 
     public String findContainerNoForTask(String taskNo) {
         return boxPoolRepository.findByTaskNo(taskNo).stream().findFirst().map(BoxPoolEntity::getContainerNo).orElse(null);
+    }
+
+    private void publish(BoxPoolEntity box, ReplenishmentTaskEntity task) {
+        if (task != null) {
+            box.setFactory(task.getFactory());
+            box.setDeliveryArea(task.getDeliveryArea());
+        }
+        pushService.publish("boxPool", box);
+    }
+
+    private void requireBoxAccess(BoxPoolEntity box) {
+        if (box.getId() == null && (box.getTaskNo() == null || box.getTaskNo().isBlank())) {
+            dataScopeService.requireGlobalAdmin();
+            return;
+        }
+        if (box.getTaskNo() == null || box.getTaskNo().isBlank()) {
+            dataScopeService.requireGlobalAdmin();
+            return;
+        }
+        ReplenishmentTaskEntity task = taskRepository.findByTaskNo(box.getTaskNo()).orElseThrow(
+                () -> new BusinessException(ErrorCode.FORBIDDEN, "容器缺少可信任务归属"));
+        dataScopeService.requireAccessFactoryArea(task.getFactory(), task.getDeliveryArea());
     }
 
     private String blankToNull(String v) { return v == null || v.isBlank() ? null : v.trim(); }

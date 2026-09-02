@@ -5,6 +5,7 @@ export const ROLE_SETS:Record<string, UserRole[]> = {
   all: ['ADMIN','PLANNER','WAREHOUSE','LINE','VIEWER'],
   masterRead: ['ADMIN','PLANNER','WAREHOUSE','LINE','VIEWER'],
   admin: ['ADMIN'],
+  userAdmin: ['ADMIN','SUB_ADMIN'],
   planner: ['ADMIN','SUB_ADMIN','PLANNER'],
   warehouse: ['ADMIN','WAREHOUSE'],
   warehousePlanner: ['ADMIN','PLANNER','WAREHOUSE'],
@@ -38,7 +39,7 @@ export const ROUTE_META:RouteMetaItem[] = [
   { path:'/logs', title:'日志追溯', roles:ROLE_SETS.warehousePlanner, icon:'Document' },
   { path:'/health', title:'健康检查', roles:ROLE_SETS.warehousePlanner, icon:'FirstAidKit' },
   { path:'/maintenance', title:'维护恢复', roles:ROLE_SETS.admin, icon:'Tools' },
-  { path:'/users', title:'用户角色', roles:ROLE_SETS.admin, group:'system' },
+  { path:'/users', title:'用户角色', roles:ROLE_SETS.userAdmin, group:'system' },
   { path:'/menu-permissions', title:'菜单权限', roles:ROLE_SETS.admin, group:'system' },
   { path:'/configs', title:'系统参数', roles:ROLE_SETS.admin, group:'system' },
 ]

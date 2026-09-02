@@ -7,10 +7,21 @@
         <el-radio-button label="prints">打印日志</el-radio-button>
         <el-radio-button label="interfaces">接口日志</el-radio-button>
       </el-radio-group>
+      <el-date-picker
+        v-model="timeRange"
+        type="datetimerange"
+        value-format="YYYY-MM-DDTHH:mm:ss"
+        start-placeholder="开始时间"
+        end-placeholder="结束时间"
+        range-separator="至"
+        :clearable="true"
+      />
+      <el-button type="primary" @click="applyFilter">筛选</el-button>
+      <el-button @click="resetFilter">重置</el-button>
       <div style="flex:1"></div>
       <el-button @click="load" :loading="loading">刷新</el-button>
       <el-button type="primary" :icon="Download" @click="exportXlsx" :loading="exporting">
-        导出 Excel{{ selectedIds.length ? `（已选 ${selectedIds.length}）` : '' }}
+        导出 Excel
       </el-button>
       <el-button
         type="danger"
@@ -50,6 +61,18 @@
         </template>
       </el-table-column>
     </el-table>
+    <div class="log-tip">
+      {{ timeRange?.length ? '已按所选时间范围查询和导出全部匹配日志。' : '未选择时间范围时，Excel 默认只导出最近 1000 条。' }}
+    </div>
+    <el-pagination
+      v-model:current-page="page"
+      v-model:page-size="pageSize"
+      :total="total"
+      :page-sizes="[50, 100, 200, 500]"
+      layout="total, sizes, prev, pager, next, jumper"
+      @current-change="load"
+      @size-change="onPageSizeChange"
+    />
   </div>
 </template>
 <script setup lang="ts">
@@ -79,13 +102,19 @@ const loading = ref(false)
 const exporting = ref(false)
 const selectedIds = ref<number[]>([])
 const tableRef = ref<TableInstance>()
+const timeRange = ref<[string, string] | null>(null)
+const page = ref(1)
+const pageSize = ref(100)
+const total = ref(0)
 const cols = computed(() => rows.value[0] ? Object.keys(rows.value[0]).filter(k => k !== 'id') : [])
 const canDelete = computed(() => currentRole() === 'ADMIN')
 
 async function load() {
   loading.value = true
   try {
-    rows.value = await get(`/logs/${tab.value}`)
+    const result:any = await get(`/logs/${tab.value}`, queryParams(true))
+    rows.value = result?.records || []
+    total.value = Number(result?.total || 0)
     selectedIds.value = []
     tableRef.value?.clearSelection()
   } finally {
@@ -94,7 +123,37 @@ async function load() {
 }
 
 function onTabChange() {
+  page.value = 1
   load()
+}
+
+function applyFilter() {
+  page.value = 1
+  load()
+}
+
+function resetFilter() {
+  timeRange.value = null
+  page.value = 1
+  load()
+}
+
+function onPageSizeChange() {
+  page.value = 1
+  load()
+}
+
+function queryParams(withPaging:boolean) {
+  const params:any = {}
+  if (withPaging) {
+    params.page = page.value - 1
+    params.size = pageSize.value
+  }
+  if (timeRange.value?.length === 2) {
+    params.startAt = timeRange.value[0]
+    params.endAt = timeRange.value[1]
+  }
+  return params
 }
 
 function onSelectionChange(rowsSelected: any[]) {
@@ -104,7 +163,7 @@ function onSelectionChange(rowsSelected: any[]) {
 async function exportXlsx() {
   exporting.value = true
   try {
-    await downloadBlob(`/logs/${tab.value}/export`, `${TAB_FILE[tab.value]}.xlsx`)
+    await downloadBlob(`/logs/${tab.value}/export`, `${TAB_FILE[tab.value]}.xlsx`, queryParams(false))
     ElMessage.success(`${TAB_LABEL[tab.value]} 已导出`)
   } catch (e:any) {
     if (e?.message) ElMessage.error(e.message)
@@ -170,5 +229,14 @@ onMounted(load)
   gap: 12px;
   margin-bottom: 12px;
   flex-wrap: wrap;
+}
+.log-tip {
+  color: #64748b;
+  font-size: 13px;
+  margin: 0 0 12px;
+}
+.el-pagination {
+  justify-content: flex-end;
+  margin-top: 12px;
 }
 </style>

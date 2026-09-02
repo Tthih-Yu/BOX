@@ -13,6 +13,11 @@ public class BasicDataDtos {
         public UserRole role;
         public String phone;
         public Boolean enabled;
+        public String factory;
+        public java.util.List<String> deliveryAreas;
+        public Long version;
+        /** 可选变更说明，写入账号范围审计；不保存密码。 */
+        public String changeReason;
     }
 
     public static class UserResponse {
@@ -23,6 +28,9 @@ public class BasicDataDtos {
         public String roleLabel;
         public String phone;
         public Boolean enabled;
+        public String factory;
+        public java.util.List<String> deliveryAreas;
+        public Long version;
         public LocalDateTime lastLoginAt;
         public LocalDateTime createdAt;
         public LocalDateTime updatedAt;
@@ -30,6 +38,7 @@ public class BasicDataDtos {
 
     public static class InventorySaveRequest {
         public Long id;
+        public String deliveryArea;
         public String warehouseCode;
         public String locationCode;
         public String warehouseMaterialCode;

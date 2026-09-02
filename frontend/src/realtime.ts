@@ -14,6 +14,25 @@ function frame(command:string, headers:Record<string,string> = {}, body = '') {
   return lines.join('\n') + '\0'
 }
 
+function enc(value:string) {
+  const bytes = new TextEncoder().encode(value)
+  let binary = ''
+  bytes.forEach(b => { binary += String.fromCharCode(b) })
+  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+}
+
+function destinations(topic:string) {
+  let user:any = {}
+  try { user = JSON.parse(localStorage.getItem('loginUser') || '{}') } catch {}
+  const base = `/topic/${topic}`
+  if (user.role === 'ADMIN' && !user.factory) return [`${base}/@global`]
+  if (!user.factory) return []
+  return [
+    `${base}/@factory/${enc(user.factory)}`,
+    ...(user.deliveryAreas || []).map((area:string) => `${base}/@area/${enc(user.factory)}/${enc(area)}`),
+  ]
+}
+
 export function connectRealtime(topics:string[], onMessage:RealtimeHandler) {
   let closedByClient = false
   let ws:WebSocket | null = null
@@ -31,7 +50,8 @@ export function connectRealtime(topics:string[], onMessage:RealtimeHandler) {
           const lines = head.split('\n')
           const command = lines[0]
           if (command === 'CONNECTED') {
-            topics.forEach((t, i) => ws?.send(frame('SUBSCRIBE', { id:`sub-${i}`, destination:`/topic/${t}` })))
+            topics.flatMap(t => destinations(t).map(destination => ({ t, destination })))
+              .forEach((x, i) => ws?.send(frame('SUBSCRIBE', { id:`sub-${i}`, destination:x.destination })))
             return
           }
           if (command === 'MESSAGE') {
