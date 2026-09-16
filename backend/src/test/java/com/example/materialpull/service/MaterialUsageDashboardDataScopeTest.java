@@ -38,10 +38,11 @@ class MaterialUsageDashboardDataScopeTest {
     void dashboardScopesTasksAndMappings() {
         service.dashboard("2026-08-01", "2026-08-31");
 
-        verify(taskRepository).findByFactoryIgnoreCaseAndDeliveryAreaInAndCreatedAtBetweenOrderByCreatedAtDesc(
+        verify(taskRepository).findScopedMaterialUsageRows(
                 eq("弋江"), eq(List.of("T26 Floor")), any(LocalDateTime.class), any(LocalDateTime.class));
-        verify(mappingRepository).findByFactoryIgnoreCaseAndDeliveryAreaInOrderByLineMaterialCodeAscMappingOrderAscIdAsc(
+        verify(mappingRepository).findScopedMaterialUsageRows(
                 "弋江", List.of("T26 Floor"));
-        verify(taskRepository, never()).findByCreatedAtBetweenOrderByCreatedAtDesc(any(), any());
+        verify(taskRepository, never()).findMaterialUsageRows(any(), any());
+        verify(mappingRepository, never()).findMaterialUsageRows();
     }
 }

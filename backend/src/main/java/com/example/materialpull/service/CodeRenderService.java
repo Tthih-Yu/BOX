@@ -33,11 +33,18 @@ public class CodeRenderService {
         int width = clamp(req.width, format == BarcodeFormat.QR_CODE ? 240 : 320, 80, 1200);
         int height = clamp(req.height, format == BarcodeFormat.QR_CODE ? width : 120, 60, 800);
         if (format == BarcodeFormat.QR_CODE) height = width;
+        String variantKey = req.variantKey == null ? null : req.variantKey.trim();
+        if (variantKey != null && variantKey.length() > 256) {
+            throw new BusinessException(ErrorCode.PARAM_ERROR, "条形码变体标识过长，最多 256 个字符");
+        }
 
         try {
             String svg;
             if (format == BarcodeFormat.CODE_128) {
-                BitMatrix matrix = new Code128Writer().encode(text, BarcodeFormat.CODE_128, width, height);
+                BitMatrix matrix = (req.variantNo != null || variantKey != null && !variantKey.isBlank())
+                        && Code128VariantEncoder.supports(text)
+                        ? Code128VariantEncoder.encode(text, req.variantNo, variantKey, width, height).matrix()
+                        : new Code128Writer().encode(text, BarcodeFormat.CODE_128, width, height);
                 svg = toSvg(matrix, text, format, Boolean.TRUE.equals(req.includeText));
             } else {
                 Map<EncodeHintType, Object> hints = new EnumMap<>(EncodeHintType.class);
@@ -84,24 +91,39 @@ public class CodeRenderService {
     private String toSvg(BitMatrix matrix, String text, BarcodeFormat format, boolean includeText) {
         int width = matrix.getWidth();
         int height = matrix.getHeight();
-        int textHeight = includeText ? 32 : 0;
-        StringBuilder sb = new StringBuilder(width * height / 2);
-        sb.append("<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"").append(width).append("\" height=\"").append(height + textHeight).append("\" viewBox=\"0 0 ").append(width).append(' ').append(height + textHeight).append("\" role=\"img\" aria-label=\"").append(esc(text)).append("\">");
+        int textHeight = includeText ? (format == BarcodeFormat.CODE_128 ? 24 : 32) : 0;
+        StringBuilder sb = new StringBuilder(Math.max(1024, width * 8));
+        sb.append("<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"").append(width).append("\" height=\"").append(height + textHeight).append("\" viewBox=\"0 0 ").append(width).append(' ').append(height + textHeight).append("\" preserveAspectRatio=\"xMidYMid meet\" shape-rendering=\"crispEdges\" role=\"img\" aria-label=\"").append(esc(text)).append("\">");
         sb.append("<rect width=\"100%\" height=\"100%\" fill=\"#fff\"/>");
-        for (int y = 0; y < height; y++) {
+        if (format == BarcodeFormat.CODE_128) {
             int start = -1;
             for (int x = 0; x <= width; x++) {
-                boolean black = x < width && matrix.get(x, y);
+                boolean black = x < width && matrix.get(x, height / 2);
                 if (black && start < 0) start = x;
                 if ((!black || x == width) && start >= 0) {
-                    sb.append("<rect x=\"").append(start).append("\" y=\"").append(y).append("\" width=\"").append(x - start).append("\" height=\"1\" fill=\"#111\"/>");
+                    sb.append("<rect x=\"").append(start).append("\" y=\"0\" width=\"").append(x - start)
+                            .append("\" height=\"").append(height).append("\" fill=\"#111\"/>");
                     start = -1;
+                }
+            }
+        } else {
+            for (int y = 0; y < height; y++) {
+                int start = -1;
+                for (int x = 0; x <= width; x++) {
+                    boolean black = x < width && matrix.get(x, y);
+                    if (black && start < 0) start = x;
+                    if ((!black || x == width) && start >= 0) {
+                        sb.append("<rect x=\"").append(start).append("\" y=\"").append(y).append("\" width=\"").append(x - start).append("\" height=\"1\" fill=\"#111\"/>");
+                        start = -1;
+                    }
                 }
             }
         }
         if (includeText) {
             String label = format == BarcodeFormat.QR_CODE && text.length() > 48 ? text.substring(0, 48) + "..." : text;
-            sb.append("<text x=\"50%\" y=\"").append(height + 22).append("\" text-anchor=\"middle\" font-family=\"Arial, Microsoft YaHei, sans-serif\" font-size=\"18\" fill=\"#111\">").append(esc(label)).append("</text>");
+            int baseline = height + (format == BarcodeFormat.CODE_128 ? 17 : 22);
+            int fontSize = format == BarcodeFormat.CODE_128 ? 14 : 18;
+            sb.append("<text x=\"50%\" y=\"").append(baseline).append("\" text-anchor=\"middle\" font-family=\"Arial, Microsoft YaHei, sans-serif\" font-size=\"").append(fontSize).append("\" fill=\"#111\">").append(esc(label)).append("</text>");
         }
         sb.append("</svg>");
         return sb.toString();

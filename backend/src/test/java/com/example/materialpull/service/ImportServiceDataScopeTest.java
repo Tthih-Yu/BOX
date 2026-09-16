@@ -3,6 +3,7 @@ package com.example.materialpull.service;
 import com.example.materialpull.common.BusinessException;
 import com.example.materialpull.common.ErrorCode;
 import com.example.materialpull.entity.ImportBatchEntity;
+import com.example.materialpull.entity.ImportErrorEntity;
 import com.example.materialpull.entity.MaterialMappingEntity;
 import com.example.materialpull.enums.ImportStatus;
 import com.example.materialpull.repository.ImportBatchRepository;
@@ -125,6 +126,76 @@ class ImportServiceDataScopeTest {
         verify(basicDataService, times(1)).upsertMappingsByWarehouseCode(anyList());
         verify(errorRepository).saveAll(any());
         assertEquals(2, savedErrors.get());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"NORMAL", "URGENT"})
+    void mappingPrecheckRejectsTwoRowsWithTheSameUsage(String deliveryType) throws Exception {
+        MockMultipartFile file = csv("""
+                mappingOrder,lineMaterialCode,warehouseCode,quantity,deliveryType,deliveryAddress,deliveryArea,factory
+                1,MAT-01,WH-01,10,%s,T18FL3-IP-KIT1-C02,T26 Floor,弋江
+                2,MAT-01,WH-02,10,%s,T18FL3-IP-KIT1-C02,T26 Floor,弋江
+                """.formatted(deliveryType, deliveryType));
+
+        ImportBatchEntity batch = service.importExcel("mappings", file, "普通管理员");
+
+        assertEquals(ImportStatus.FAILED, batch.getStatus());
+        assertTrue(batch.getPrecheckFailed());
+        assertEquals(2, batch.getTotalRows());
+        assertEquals(0, batch.getSuccessRows());
+        assertEquals(2, batch.getFailedRows());
+        verify(basicDataService, never()).normalizeMapping(any());
+        verify(basicDataService, never()).upsertMappingsByWarehouseCode(anyList());
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<ImportErrorEntity>> errors = ArgumentCaptor.forClass(List.class);
+        verify(errorRepository).saveAll(errors.capture());
+        assertEquals(List.of(2, 3), errors.getValue().stream().map(ImportErrorEntity::getRowNo).toList());
+        assertTrue(errors.getValue().stream().allMatch(error ->
+                error.getErrorMessage().contains("一条 NORMAL、一条 URGENT")
+                        && error.getErrorMessage().contains(deliveryType)));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"~", "～", "〜"})
+    void mappingPrecheckRejectsTildeInDeliveryAddress(String tilde) throws Exception {
+        MockMultipartFile file = csv("""
+                mappingOrder,lineMaterialCode,warehouseCode,quantity,deliveryType,deliveryAddress,deliveryArea,factory
+                1,MAT-01,WH-01,10,NORMAL,T18FL3%sIP,T26 Floor,弋江
+                """.formatted(tilde));
+
+        ImportBatchEntity batch = service.importExcel("mappings", file, "普通管理员");
+
+        assertEquals(ImportStatus.FAILED, batch.getStatus());
+        assertTrue(batch.getPrecheckFailed());
+        assertEquals(1, batch.getFailedRows());
+        verify(basicDataService, never()).upsertMappingsByWarehouseCode(anyList());
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<ImportErrorEntity>> errors = ArgumentCaptor.forClass(List.class);
+        verify(errorRepository).saveAll(errors.capture());
+        assertEquals(2, errors.getValue().get(0).getRowNo());
+        assertTrue(errors.getValue().get(0).getErrorMessage().contains("请改用横杠 '-'"));
+    }
+
+    @Test
+    void mappingPrecheckAllowsNormalAndUrgentPair() throws Exception {
+        MockMultipartFile file = csv("""
+                mappingOrder,lineMaterialCode,warehouseCode,quantity,deliveryType,deliveryAddress,deliveryArea,factory
+                1,MAT-01,WH-01,10,NORMAL,T18FL3-IP-KIT1-C02,T26 Floor,弋江
+                2,MAT-01,WH-02,10,URGENT,T18FL3-IP-KIT1-C02,T26 Floor,弋江
+                """);
+
+        ImportBatchEntity batch = service.importExcel("mappings", file, "普通管理员");
+
+        assertEquals(ImportStatus.SUCCESS, batch.getStatus());
+        assertFalse(batch.getPrecheckFailed());
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<MaterialMappingEntity>> rows = ArgumentCaptor.forClass(List.class);
+        verify(basicDataService).upsertMappingsByWarehouseCode(rows.capture());
+        assertEquals(List.of("NORMAL", "URGENT"),
+                rows.getValue().stream().map(MaterialMappingEntity::getDeliveryType).toList());
+        verify(errorRepository, never()).saveAll(any());
     }
 
     private MockMultipartFile csv(String content) {

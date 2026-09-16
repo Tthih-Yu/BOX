@@ -310,15 +310,32 @@ public class PrintJobService {
         // 外框
         box(zpl, 8, 8, 624, 384, 3, sx, sy);
 
-        // ===== 顶部带(y 8..140)：左=用途黑底反白药丸，右=条码+数字 =====
-        box(zpl, 24, 36, 268, 68, 68, sx, sy); // 用途药丸(填充黑块)
-        text(zpl, 40, 52, 34, urgent ? "紧急配送(备用)" : "正常配送(使用)", sx, sy, true);
-        // 条码区（仓库代号），下方带明文数字，便于扫码与人工核对
-        int byWidth = Math.max(2, (int) Math.round(2 * sx));
-        int bcHeight = scale(74, sy);
-        zpl.append("^FO").append(scale(320, sx)).append(",").append(scale(26, sy))
+        // ===== 顶部带(y 8..140)：左侧状态+仓库代号，右侧仅放条码 =====
+        // 下方所有分区继续沿用原坐标。右侧约 50mm；模块宽度优先 4 点，
+        // 较长变体自动降到 3 点，并始终为左右静区保留至少 10 个窄模块。
+        text(zpl, 24, 40, 24, urgent ? "紧急配送-备用" : "正常配送-使用", sx, sy, false);
+        text(zpl, 24, 72, 48, z(barcode), sx, sy, false);
+        Code128VariantEncoder.Variant variant = Code128VariantEncoder.supports(barcode)
+                ? Code128VariantEncoder.encode(barcode, t.getBarcodeVariantNo(), t.getTaskNo(), 1, 1)
+                : null;
+        int barcodeAreaX = scale(224, sx);
+        int barcodeAreaWidth = scale(400, sx);
+        int byWidth = Math.max(2, (int) Math.round(4 * sx));
+        if (variant != null) {
+            while (byWidth > 2
+                    && (variant.symbolModules() + variant.quietZoneModules() * 2) * byWidth > barcodeAreaWidth) {
+                byWidth--;
+            }
+        }
+        int bcHeight = scale(100, sy);
+        int barcodeWidth = variant == null ? 0 : variant.symbolModules() * byWidth;
+        int barcodeX = variant == null ? barcodeAreaX
+                : barcodeAreaX + Math.max(0, (barcodeAreaWidth - barcodeWidth) / 2);
+        String variantBarcode = variant == null ? null : variant.zplFieldData();
+        zpl.append("^FO").append(barcodeX).append(",").append(scale(24, sy))
            .append("^BY").append(byWidth).append(",2.5,").append(bcHeight)
-           .append("^BCN,").append(bcHeight).append(",Y,N,N^FD").append(z(barcode)).append("^FS\n");
+           .append("^BCN,").append(bcHeight).append(",N,N,N^FD")
+           .append(variantBarcode == null ? z(barcode) : variantBarcode).append("^FS\n");
 
         // ===== 中部带(y 140..262)：三栏，栏内小字标签在上、大字值在下(超长折2行) =====
         box(zpl, 8, 140, 624, 0, 2, sx, sy);       // 上分隔线

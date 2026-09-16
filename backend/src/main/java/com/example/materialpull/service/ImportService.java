@@ -137,9 +137,9 @@ public class ImportService {
     public ImportBatchEntity importExcel(String type, MultipartFile file, String operator, boolean overwrite) throws Exception {
         if (file == null || file.isEmpty()) throw new BusinessException(ErrorCode.PARAM_ERROR, "导入文件不能为空");
         String importType = validateImportType(type);
-        if (overwrite) applyOverwrite(importType);
         String fileName = Optional.ofNullable(file.getOriginalFilename()).orElse("");
         validateImportFileName(fileName);
+        FileFormat format = detectFormat(file, fileName);
 
         ImportBatchEntity batch = new ImportBatchEntity();
         batch.setBatchNo(IdGenerator.id("IMP"));
@@ -148,15 +148,30 @@ public class ImportService {
         batch.setOperator(operator == null || operator.isBlank() ? OperatorResolver.systemOperator() : operator.trim());
         batchRepository.save(batch);
 
-        // 流式解析：不把整份文件读进内存，逐行处理并即时落库，行数不设上限。
-        // xlsx/xlsm 走 SAX 事件流；csv 逐行读取；xls(旧二进制)本身受 65536 行硬上限约束，用有界 DOM。
-        BatchAccumulator acc = new BatchAccumulator(importType, batch);
         try {
-            switch (detectFormat(file, fileName)) {
-                case CSV -> streamCsv(file, acc);
-                case XLS -> readLegacyXls(file, acc);
-                default -> streamXlsx(file, acc);
+            // 料号映射先完整预检，再进入原有写库解析。预检失败时业务表不会写入任何一行。
+            if ("mappings".equals(importType)) {
+                MappingPrecheckAccumulator precheck = new MappingPrecheckAccumulator();
+                readRows(file, format, precheck);
+                List<PrecheckIssue> issues = precheck.finish();
+                if (!issues.isEmpty()) {
+                    savePrecheckIssues(batch, issues);
+                    batch.setTotalRows(precheck.total);
+                    batch.setSuccessRows(0);
+                    batch.setFailedRows(issues.size());
+                    batch.setStatus(ImportStatus.FAILED);
+                    batch.setPrecheckFailed(true);
+                    batch.setFinishedAt(LocalDateTime.now());
+                    return batchRepository.save(batch);
+                }
             }
+
+            if (overwrite) applyOverwrite(importType);
+
+            // 流式解析：不把整份文件读进内存，逐行处理并即时落库，行数不设上限。
+            // xlsx/xlsm 走 SAX 事件流；csv 逐行读取；xls(旧二进制)本身受 65536 行硬上限约束，用有界 DOM。
+            BatchAccumulator acc = new BatchAccumulator(importType, batch);
+            readRows(file, format, acc);
             acc.finish();
             batch.setTotalRows(acc.total);
             batch.setSuccessRows(acc.success);
@@ -171,6 +186,31 @@ public class ImportService {
             markFailed(batch);
             throw new BusinessException(ErrorCode.PARAM_ERROR, "导入文件解析失败，请确认文件是 xlsx/xlsm/xls/csv 格式：" + e.getMessage());
         }
+    }
+
+    private void readRows(MultipartFile file, FileFormat format, ObjIntConsumer<List<String>> consumer) throws Exception {
+        switch (format) {
+            case CSV -> streamCsv(file, consumer);
+            case XLS -> readLegacyXls(file, consumer);
+            default -> streamXlsx(file, consumer);
+        }
+    }
+
+    private void savePrecheckIssues(ImportBatchEntity batch, List<PrecheckIssue> issues) {
+        List<ImportErrorEntity> buffer = new ArrayList<>(Math.min(issues.size(), WRITE_BATCH_SIZE));
+        for (PrecheckIssue issue : issues) {
+            ImportErrorEntity error = new ImportErrorEntity();
+            error.setBatchNo(batch.getBatchNo());
+            error.setRowNo(issue.rowIndex() + 1);
+            error.setRawData(cellsToString(issue.cells()));
+            error.setErrorMessage(String.join("；", issue.messages()));
+            buffer.add(error);
+            if (buffer.size() >= WRITE_BATCH_SIZE) {
+                errorRepository.saveAll(buffer);
+                buffer.clear();
+            }
+        }
+        if (!buffer.isEmpty()) errorRepository.saveAll(buffer);
     }
 
     /** 覆盖上传：导入新数据前先清空该类型的现存数据。目前仅料号映射支持。 */
@@ -299,6 +339,98 @@ public class ImportService {
     /** 缓冲中的一行映射：实体本身，加上原始单元格与行号用于错误回溯。 */
     private record PendingMapping(MaterialMappingEntity entity, List<String> cells, int rowIndex) {}
 
+    /**
+     * 料号映射文件级预检。只保留分组所需字段和原始行，不调用任何业务写方法。
+     * 同一问题行的多项错误会合并成一条明细，failedRows 始终表示问题行数。
+     */
+    private final class MappingPrecheckAccumulator implements ObjIntConsumer<List<String>> {
+        private Map<String, Integer> headerIndex;
+        private boolean headerResolved = false;
+        private final Map<String, List<PrecheckRow>> groups = new LinkedHashMap<>();
+        private final Map<Integer, MutablePrecheckIssue> issues = new LinkedHashMap<>();
+        int total = 0;
+
+        @Override
+        public void accept(List<String> cells, int rowIndex) {
+            if (!headerResolved) {
+                headerIndex = buildHeaderIndex("mappings", cells);
+                headerResolved = true;
+                return;
+            }
+            if (isBlankCells(cells)) return;
+            total++;
+
+            List<String> original = List.copyOf(cells);
+            RowView row = new RowView(original, headerIndex);
+            String materialCode = row.str("lineMaterialCode").trim();
+            String deliveryAddress = row.str("deliveryAddress").trim();
+            String deliveryType = precheckDeliveryType(row);
+            PrecheckRow item = new PrecheckRow(rowIndex, original, materialCode, deliveryAddress, deliveryType);
+
+            if (containsAddressTilde(deliveryAddress)) {
+                addIssue(item, "预检失败：总装地址包含波浪号，请改用横杠 '-'，当前值=" + deliveryAddress);
+            }
+            if (!materialCode.isEmpty() && !deliveryAddress.isEmpty()) {
+                String key = materialCode.toUpperCase(Locale.ROOT) + "\u0000" + deliveryAddress;
+                groups.computeIfAbsent(key, ignored -> new ArrayList<>()).add(item);
+            }
+        }
+
+        List<PrecheckIssue> finish() {
+            for (List<PrecheckRow> group : groups.values()) {
+                if (group.size() != 2) continue;
+                String firstType = group.get(0).deliveryType();
+                if (!("NORMAL".equals(firstType) || "URGENT".equals(firstType))
+                        || !firstType.equals(group.get(1).deliveryType())) {
+                    continue;
+                }
+                String message = "预检失败：料号 " + group.get(0).materialCode()
+                        + " + 总装地址 " + group.get(0).deliveryAddress()
+                        + " 的两条记录用途均为 " + firstType
+                        + "，应维护为一条 NORMAL、一条 URGENT";
+                group.forEach(row -> addIssue(row, message));
+            }
+            return issues.values().stream()
+                    .map(issue -> new PrecheckIssue(issue.rowIndex, issue.cells, List.copyOf(issue.messages)))
+                    .toList();
+        }
+
+        private String precheckDeliveryType(RowView row) {
+            String value = row.str("deliveryType").trim();
+            if (!value.isEmpty()) return value.toUpperCase(Locale.ROOT);
+            try {
+                return inferDeliveryType(row.intValOrDefault("mappingOrder", 1));
+            } catch (RuntimeException ignored) {
+                // 序号格式错误由正式逐行校验报告；预检只负责本次新增的两类文件级问题。
+                return "";
+            }
+        }
+
+        private void addIssue(PrecheckRow row, String message) {
+            MutablePrecheckIssue issue = issues.computeIfAbsent(row.rowIndex(),
+                    ignored -> new MutablePrecheckIssue(row.rowIndex(), row.cells()));
+            issue.messages.add(message);
+        }
+    }
+
+    private boolean containsAddressTilde(String address) {
+        return address != null && (address.indexOf('~') >= 0 || address.indexOf('～') >= 0 || address.indexOf('〜') >= 0);
+    }
+
+    private record PrecheckRow(int rowIndex, List<String> cells, String materialCode,
+                               String deliveryAddress, String deliveryType) {}
+    private record PrecheckIssue(int rowIndex, List<String> cells, List<String> messages) {}
+    private static final class MutablePrecheckIssue {
+        private final int rowIndex;
+        private final List<String> cells;
+        private final LinkedHashSet<String> messages = new LinkedHashSet<>();
+
+        private MutablePrecheckIssue(int rowIndex, List<String> cells) {
+            this.rowIndex = rowIndex;
+            this.cells = cells;
+        }
+    }
+
     private void importRow(String type, RowView row, String operator) {
         switch (type) {
             case "materials" -> saveMaterial(row);
@@ -321,7 +453,7 @@ public class ImportService {
     }
 
     /** CSV 逐行流式读取，不构建任何 workbook；行数不设上限，内存恒定。 */
-    private void streamCsv(MultipartFile file, BatchAccumulator acc) throws IOException {
+    private void streamCsv(MultipartFile file, ObjIntConsumer<List<String>> acc) throws IOException {
         try (Reader reader = new InputStreamReader(new BufferedInputStream(file.getInputStream()), StandardCharsets.UTF_8);
              CSVParser parser = CSVFormat.DEFAULT.builder().setTrim(true).setIgnoreEmptyLines(false).build().parse(reader)) {
             int rowIdx = 0;
@@ -342,7 +474,7 @@ public class ImportService {
      * xlsx/xlsm 事件流(SAX)读取：仅解析第一个工作表，逐行回调，内存与文件大小无关。
      * 用 ReadOnlySharedStringsTable 只读共享字符串表，避免把整表载入内存。
      */
-    private void streamXlsx(MultipartFile file, BatchAccumulator acc) throws Exception {
+    private void streamXlsx(MultipartFile file, ObjIntConsumer<List<String>> acc) throws Exception {
         File temp = File.createTempFile("mp-import-", ".xlsx");
         try (InputStream in = new BufferedInputStream(file.getInputStream())) {
             java.nio.file.Files.copy(in, temp.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING);
@@ -367,7 +499,7 @@ public class ImportService {
      * xls(旧 BIFF 二进制)用有界 DOM 读取。该格式单表硬上限 65536 行、256 列，
      * 内存占用有天然上界，不存在无限膨胀 OOM 风险；新的大批量数据请用 xlsx/csv。
      */
-    private void readLegacyXls(MultipartFile file, BatchAccumulator acc) throws Exception {
+    private void readLegacyXls(MultipartFile file, ObjIntConsumer<List<String>> acc) throws Exception {
         try (InputStream in = new BufferedInputStream(file.getInputStream());
              Workbook wb = WorkbookFactory.create(in)) {
             Sheet sheet = wb.getNumberOfSheets() == 0 ? null : wb.getSheetAt(0);
@@ -390,12 +522,12 @@ public class ImportService {
      * DataFormatter 语义保持与旧实现一致：日期/数字被格式化为文本。
      */
     private final class StreamingSheetHandler implements SheetContentsHandler {
-        private final BatchAccumulator acc;
+        private final ObjIntConsumer<List<String>> acc;
         private final DataFormatter formatter = new DataFormatter();
         private List<String> current = new ArrayList<>();
         private int currentRow = -1;
 
-        StreamingSheetHandler(BatchAccumulator acc) { this.acc = acc; }
+        StreamingSheetHandler(ObjIntConsumer<List<String>> acc) { this.acc = acc; }
 
         @Override
         public void startRow(int rowNum) {

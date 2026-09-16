@@ -15,9 +15,11 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.PageRequest;
 
 import java.math.BigDecimal;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -74,6 +76,37 @@ class BasicDataServiceDataScopeTest {
     }
 
     @Test
+    void subAdminReadsTheEntireAssignedFactoryRegardlessOfDeliveryAreas() {
+        RequestContext.setLoginUser(2L, "sub", "普通管理员", UserRole.SUB_ADMIN,
+                "弋江", List.of("T26 Floor"));
+
+        service.mappings();
+
+        verify(mappingRepository).findByFactoryIgnoreCaseOrderByLineMaterialCodeAscMappingOrderAscIdAsc("弋江");
+        verify(mappingRepository, never()).findByFactoryIgnoreCaseAndDeliveryAreaInOrderByLineMaterialCodeAscMappingOrderAscIdAsc(anyString(), anyList());
+    }
+
+    @Test
+    void accountWithoutDeliveryAreasReadsTheEntireAssignedFactory() {
+        RequestContext.setLoginUser(8L, "warehouse", "仓库", UserRole.WAREHOUSE, "弋江", List.of());
+
+        service.mappings();
+
+        verify(mappingRepository).findByFactoryIgnoreCaseOrderByLineMaterialCodeAscMappingOrderAscIdAsc("弋江");
+    }
+
+    @Test
+    void subAdminPagedListReadsTheEntireAssignedFactory() {
+        RequestContext.setLoginUser(2L, "sub", "普通管理员", UserRole.SUB_ADMIN,
+                "弋江", List.of("T26 Floor"));
+
+        service.mappings("MAT", PageRequest.of(0, 50));
+
+        verify(mappingRepository).findFactoryScoped(eq("弋江"), eq("MAT"), any(PageRequest.class));
+        verify(mappingRepository, never()).findScoped(anyString(), anyList(), anyString(), any(PageRequest.class));
+    }
+
+    @Test
     void saveIgnoresForgedFactoryAndUsesTrustedFactory() {
         MaterialMappingEntity mapping = validMapping("三山", "T26 Floor");
         when(mappingRepository.findByWarehouseCodeAndEnabledTrue("WH-01")).thenReturn(Optional.empty());
@@ -119,13 +152,50 @@ class BasicDataServiceDataScopeTest {
     }
 
     @Test
+    void subAdminCanDeleteAllMappingsInItsOwnFactory() {
+        RequestContext.setLoginUser(2L, "sub", "普通管理员", UserRole.SUB_ADMIN,
+                "弋江", List.of("T26 Floor"));
+        when(mappingRepository.deleteByFactory("弋江")).thenReturn(12);
+
+        Map<String, Object> result = service.deleteMappings("ALL", null, null);
+
+        assertEquals(12, result.get("deleted"));
+        assertEquals("弋江", result.get("factory"));
+        verify(mappingRepository).deleteByFactory("弋江");
+        verify(mappingRepository, never()).deleteAllInBatch();
+    }
+
+    @Test
+    void subAdminCanDeleteAnyMappingInItsOwnFactory() {
+        RequestContext.setLoginUser(2L, "sub", "普通管理员", UserRole.SUB_ADMIN,
+                "弋江", List.of("T26 Floor"));
+        MaterialMappingEntity mapping = scopedMapping(1L, "弋江", "Another Area");
+        when(mappingRepository.findById(1L)).thenReturn(Optional.of(mapping));
+
+        service.deleteMapping(1L);
+
+        verify(mappingRepository).delete(mapping);
+    }
+
+    @Test
+    void subAdminImportCanWriteAnyDeliveryAreaInItsOwnFactory() {
+        RequestContext.setLoginUser(2L, "sub", "普通管理员", UserRole.SUB_ADMIN,
+                "弋江", List.of("T26 Floor"));
+        MaterialMappingEntity mapping = validMapping("三山", "Another Area");
+        when(mappingRepository.findByWarehouseCodeInAndEnabledTrue(anyCollection())).thenReturn(List.of());
+
+        service.upsertMappingsByWarehouseCode(List.of(mapping));
+
+        assertEquals("弋江", mapping.getFactory());
+        verify(mappingRepository).saveAll(any());
+    }
+
+    @Test
     void globalAdminCanCreateLowerRoleWithFactoryAndAreas() {
         RequestContext.setLoginUser(1L, "root", "全局管理员", UserRole.ADMIN, null, List.of());
         BasicDataDtos.UserRequest req = userRequest(null, UserRole.PLANNER, "弋江", List.of("T26 Floor"));
         when(userRepository.findByUsername("new-user")).thenReturn(Optional.empty());
         when(factoryRepository.findByFactoryCode("弋江")).thenReturn(Optional.of(factory("弋江")));
-        when(deliveryAreaRepository.findByFactoryCodeAndAreaCodeIn("弋江", List.of("T26 Floor")))
-                .thenReturn(List.of(area("弋江", "T26 Floor")));
         when(userRepository.save(any())).thenAnswer(invocation -> {
             com.example.materialpull.entity.UserEntity saved = invocation.getArgument(0);
             saved.setId(20L);
@@ -195,8 +265,6 @@ class BasicDataServiceDataScopeTest {
         BasicDataDtos.UserRequest req = userRequest(null, UserRole.VIEWER, "弋江", List.of("T26 Rear"));
         when(userRepository.findByUsername("new-user")).thenReturn(Optional.empty());
         when(factoryRepository.findByFactoryCode("弋江")).thenReturn(Optional.of(factory("弋江")));
-        when(deliveryAreaRepository.findByFactoryCodeAndAreaCodeIn("弋江", List.of("T26 Rear")))
-                .thenReturn(List.of(area("弋江", "T26 Rear")));
 
         assertThrows(BusinessException.class, () -> service.saveUser(req));
         verify(userRepository, never()).save(any());

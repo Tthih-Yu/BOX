@@ -273,7 +273,7 @@ public class BasicDataService {
     public void deleteMapping(Long id) {
         if (id == null) throw new BusinessException(ErrorCode.PARAM_ERROR, "料号映射ID不能为空");
         MaterialMappingEntity e = mappingRepository.findById(id).orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "料号映射不存在：" + id));
-        dataScopeService.requireAccessFactoryArea(e.getFactory(), e.getDeliveryArea());
+        requireMappingAccess(e.getFactory(), e.getDeliveryArea());
         // 补货任务已经保存映射快照，不依赖映射外键。这里必须真正删除，
         // 否则 enabled=false 的记录仍会出现在基础数据列表中，用户会误以为删除失败。
         mappingRepository.delete(e);
@@ -298,12 +298,17 @@ public class BasicDataService {
     public Map<String, Object> deleteMappings(String scope, String deliveryArea, List<Long> ids) {
         String mode = scope == null ? "" : scope.trim().toUpperCase(Locale.ROOT);
         if ("ALL".equals(mode)) {
-            if (!dataScopeService.isGlobalAdmin()) {
-                throw new BusinessException(ErrorCode.FORBIDDEN, "只有全局管理员可以删除全部料号映射");
+            if (dataScopeService.isGlobalAdmin()) {
+                long total = mappingRepository.count();
+                mappingRepository.deleteAllInBatch();
+                return Map.of("deleted", total, "mode", "ALL");
             }
-            long total = mappingRepository.count();
-            mappingRepository.deleteAllInBatch();
-            return Map.of("deleted", total, "mode", "ALL");
+            if (isMappingFactoryAdmin()) {
+                String factory = dataScopeService.currentFactory();
+                int deleted = mappingRepository.deleteByFactory(factory);
+                return Map.of("deleted", deleted, "mode", "ALL", "factory", factory);
+            }
+            throw new BusinessException(ErrorCode.FORBIDDEN, "只有全局管理员或普通管理员可以删除料号映射");
         }
         if ("AREA".equals(mode)) {
             String area = blankToNull(deliveryArea);
@@ -312,7 +317,7 @@ public class BasicDataService {
                 throw new BusinessException(ErrorCode.PARAM_ERROR, "全局管理员按区域删除时必须通过限定工厂的入口");
             }
             String factory = dataScopeService.currentFactory();
-            dataScopeService.requireAccessFactoryArea(factory, area);
+            requireMappingAccess(factory, area);
             int deleted = mappingRepository.deleteByFactoryAndDeliveryArea(factory, area);
             return Map.of("deleted", deleted, "mode", "AREA", "factory", factory, "deliveryArea", area);
         }
@@ -321,7 +326,7 @@ public class BasicDataService {
         if (distinct.isEmpty()) throw new BusinessException(ErrorCode.PARAM_ERROR, "请选择要删除的料号映射");
         List<MaterialMappingEntity> mappings = mappingRepository.findAllById(distinct);
         if (mappings.size() != distinct.size()) throw new BusinessException(ErrorCode.NOT_FOUND, "部分料号映射不存在");
-        dataScopeService.requireAccessBatch(mappings, MaterialMappingEntity::getFactory, MaterialMappingEntity::getDeliveryArea);
+        mappings.forEach(mapping -> requireMappingAccess(mapping.getFactory(), mapping.getDeliveryArea()));
         mappingRepository.deleteAllInBatch(mappings);
         return Map.of("deleted", distinct.size(), "mode", "IDS");
     }
@@ -329,8 +334,12 @@ public class BasicDataService {
     @Transactional(readOnly = true)
     public List<MaterialMappingEntity> mappings() {
         if (dataScopeService.isGlobalAdmin()) return mappingRepository.findAllByOrderByLineMaterialCodeAscMappingOrderAscIdAsc();
+        String factory = dataScopeService.currentFactory();
+        if (hasFactoryWideMappingReadAccess()) {
+            return mappingRepository.findByFactoryIgnoreCaseOrderByLineMaterialCodeAscMappingOrderAscIdAsc(factory);
+        }
         return mappingRepository.findByFactoryIgnoreCaseAndDeliveryAreaInOrderByLineMaterialCodeAscMappingOrderAscIdAsc(
-                dataScopeService.currentFactory(), dataScopeService.currentDeliveryAreas());
+                factory, dataScopeService.currentDeliveryAreas());
     }
 
     @Transactional(readOnly = true)
@@ -339,7 +348,11 @@ public class BasicDataService {
         if (dataScopeService.isGlobalAdmin()) {
             return mappingRepository.findByLineMaterialCodeContainingIgnoreCaseOrWarehouseCodeContainingIgnoreCaseOrWarehouseMaterialCodeContainingIgnoreCaseOrDeliveryAddressContainingIgnoreCaseOrderByLineMaterialCodeAscMappingOrderAscIdAsc(query, query, query, query, pageable);
         }
-        return mappingRepository.findScoped(dataScopeService.currentFactory(), dataScopeService.currentDeliveryAreas(), query, pageable);
+        String factory = dataScopeService.currentFactory();
+        if (hasFactoryWideMappingReadAccess()) {
+            return mappingRepository.findFactoryScoped(factory, query, pageable);
+        }
+        return mappingRepository.findScoped(factory, dataScopeService.currentDeliveryAreas(), query, pageable);
     }
 
     @Transactional(readOnly = true)
@@ -389,7 +402,7 @@ public class BasicDataService {
         for (MaterialMappingEntity row : rows) deduped.put(row.getWarehouseCode(), row);
         Map<String, Long> existingIds = new HashMap<>();
         for (MaterialMappingEntity old : mappingRepository.findByWarehouseCodeInAndEnabledTrue(deduped.keySet())) {
-            dataScopeService.requireAccessFactoryArea(old.getFactory(), old.getDeliveryArea());
+            requireMappingAccess(old.getFactory(), old.getDeliveryArea());
             existingIds.putIfAbsent(old.getWarehouseCode(), old.getId());
         }
         for (MaterialMappingEntity row : deduped.values()) {
@@ -404,11 +417,11 @@ public class BasicDataService {
         if (entity.getId() != null) {
             MaterialMappingEntity old = mappingRepository.findById(entity.getId())
                     .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "料号映射不存在：" + entity.getId()));
-            dataScopeService.requireAccessFactoryArea(old.getFactory(), old.getDeliveryArea());
+            requireMappingAccess(old.getFactory(), old.getDeliveryArea());
         }
         applyTrustedMappingScope(entity);
         mappingRepository.findByWarehouseCodeAndEnabledTrue(entity.getWarehouseCode()).ifPresent(old -> {
-            dataScopeService.requireAccessFactoryArea(old.getFactory(), old.getDeliveryArea());
+            requireMappingAccess(old.getFactory(), old.getDeliveryArea());
             if (!Objects.equals(old.getId(), entity.getId()) && Boolean.TRUE.equals(entity.getEnabled())) {
                 throw new BusinessException(ErrorCode.DATA_DIRTY, "该仓库代号已有启用映射：" + entity.getWarehouseCode());
             }
@@ -418,11 +431,32 @@ public class BasicDataService {
 
     private void applyTrustedMappingScope(MaterialMappingEntity entity) {
         if (dataScopeService.isGlobalAdmin()) {
-            dataScopeService.requireAccessFactoryArea(entity.getFactory(), entity.getDeliveryArea());
+            requireMappingAccess(entity.getFactory(), entity.getDeliveryArea());
             return;
         }
         entity.setFactory(dataScopeService.currentFactory());
-        dataScopeService.requireAccessFactoryArea(entity.getFactory(), entity.getDeliveryArea());
+        requireMappingAccess(entity.getFactory(), entity.getDeliveryArea());
+    }
+
+    /**
+     * 普通管理员只管理其所属工厂的料号映射，配送区域配置不会缩小该项职责。
+     * 其它角色仍遵循原有的工厂 + 配送区域数据范围。
+     */
+    private boolean isMappingFactoryAdmin() {
+        return RequestContext.getRole() == UserRole.SUB_ADMIN;
+    }
+
+    private boolean hasFactoryWideMappingReadAccess() {
+        // 配送区域留空的账号按既有约定可查看所属工厂全部区域；不能把空集合传给 SQL IN 条件。
+        return isMappingFactoryAdmin() || dataScopeService.currentDeliveryAreas().isEmpty();
+    }
+
+    private void requireMappingAccess(String factory, String deliveryArea) {
+        if (isMappingFactoryAdmin()) {
+            dataScopeService.requireAccessFactoryOnly(factory);
+            return;
+        }
+        dataScopeService.requireAccessFactoryArea(factory, deliveryArea);
     }
 
     @Transactional

@@ -101,6 +101,28 @@ class PrintJobServiceDataScopeTest {
         assertEquals("T26 Floor", job.getDeliveryArea());
     }
 
+    @Test
+    void sixDigitLabelUsesLeftTextAndRightBarcodeWithoutRepeatedInterpretationLine() {
+        ReplenishmentTaskEntity task = task("TASK-02", "弋江", "T26 Floor");
+        task.setWarehouseCode("139315");
+        task.setBarcodeVariantNo(0);
+        when(properties.getDefaultPrintType()).thenReturn("WAREHOUSE_BARCODE_LABEL");
+        when(properties.getDefaultPrinterName()).thenReturn("Printer-01");
+        when(properties.isPrintPullMode()).thenReturn(true);
+        when(printJobRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+
+        PrintJobEntity job = service.createForTask(task, "tester");
+        String zpl = job.getZplContent();
+
+        assertTrue(zpl.contains("^FO24,40^A0N,24,24^FD正常配送-使用^FS"));
+        assertTrue(zpl.contains("^FO24,72^A0N,48,48^FD139315^FS"));
+        assertTrue(zpl.contains("^BY4,2.5,100^BCN,100,N,N,N^FD"));
+        assertFalse(zpl.contains("^BCN,100,Y,N,N"));
+        // 顶部以下的原分隔线坐标保持不变。
+        assertTrue(zpl.contains("^FO8,140^GB"));
+        assertTrue(zpl.contains("^FO8,262^GB"));
+    }
+
     private ReplenishmentTaskEntity task(String taskNo, String factory, String area) {
         ReplenishmentTaskEntity task = new ReplenishmentTaskEntity();
         task.setTaskNo(taskNo);

@@ -278,6 +278,7 @@ const autoRefreshSec = ref<number>(Number(localStorage.getItem(AUTO_REFRESH_KEY)
 const lastRefreshText = ref('')
 let refreshTimer:number | undefined
 let closeRealtime:(() => void) | undefined
+let mounted = false
 const ALL_AREAS = '__all__'
 const selectedFactoryKey = ref('')
 const selectedAreaKey = ref(ALL_AREAS)
@@ -633,7 +634,7 @@ async function openPrint(row:any){
   const code = row.warehouseCode || row.barcodeValue
   if (code) {
     try {
-      const result:any = await post('/labels/code/render', { text: String(code), format: 'CODE_128', width: 520, height: 150, includeText: true })
+      const result:any = await post('/labels/code/render', { text: String(code), variantKey: String(row.taskNo || ''), variantNo: row.barcodeVariantNo, format: 'CODE_128', width: 400, height: 100, includeText: false })
       barcodeSvg.value = result.svg
     } catch (e:any) {
       ElMessage.error(e?.response?.data?.message || e?.message || '条形码生成失败')
@@ -699,11 +700,14 @@ async function forceComplete(row:any){ await ElMessageBox.confirm('强制完成�
 async function receive(row:any){ const empty = await ElMessageBox.prompt('现场收货确认，可填写空盒编号','收货确认'); await post(`/tasks/${row.taskNo}/receive`, { receiveScanCode:row.taskNo, emptyContainerNo:empty.value, expectedStatus:row.status }); load() }
 async function returnEmpty(row:any){ const empty = await ElMessageBox.prompt('请输入空盒编号','空盒回收'); await post(`/tasks/${row.taskNo}/returnEmptyBox`, { emptyContainerNo:empty.value, expectedStatus:row.status }); load() }
 onMounted(async()=>{
+  mounted = true
   const meta = await loadBusinessMeta(); statuses.value = meta.taskStatuses.map(x => ({ label: x.label, value: x.value })); load()
+  if (!mounted) return
   setupAutoRefresh()
   closeRealtime = connectRealtime(['tasks','taskWarnings'], () => { load() })
 })
 onUnmounted(()=>{
+  mounted = false
   if (refreshTimer) window.clearInterval(refreshTimer)
   closeRealtime?.()
 })

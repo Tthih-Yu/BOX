@@ -1,5 +1,6 @@
 package com.example.materialpull.repository;
 
+import com.example.materialpull.dto.MaterialUsageMappingDto;
 import com.example.materialpull.entity.MaterialMappingEntity;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
@@ -20,13 +21,38 @@ public interface MaterialMappingRepository extends JpaRepository<MaterialMapping
     List<MaterialMappingEntity> findByWarehouseCodeInAndEnabledTrue(Collection<String> warehouseCodes);
     List<MaterialMappingEntity> findTop1000ByOrderByLineMaterialCodeAscMappingOrderAscIdAsc();
     List<MaterialMappingEntity> findAllByOrderByLineMaterialCodeAscMappingOrderAscIdAsc();
+    List<MaterialMappingEntity> findByFactoryIgnoreCaseOrderByLineMaterialCodeAscMappingOrderAscIdAsc(String factory);
     List<MaterialMappingEntity> findByFactoryIgnoreCaseAndDeliveryAreaInOrderByLineMaterialCodeAscMappingOrderAscIdAsc(String factory, Collection<String> deliveryAreas);
+
+    @Query("""
+            select new com.example.materialpull.dto.MaterialUsageMappingDto(
+                m.lineMaterialCode, m.warehouseCode, m.warehouseMaterialCode, m.factory,
+                m.stationCode, m.warehouseLocation, m.deliveryAddress, m.deliveryArea)
+            from MaterialMappingEntity m
+            order by m.lineMaterialCode asc, m.mappingOrder asc, m.id asc
+            """)
+    List<MaterialUsageMappingDto> findMaterialUsageRows();
+
+    @Query("""
+            select new com.example.materialpull.dto.MaterialUsageMappingDto(
+                m.lineMaterialCode, m.warehouseCode, m.warehouseMaterialCode, m.factory,
+                m.stationCode, m.warehouseLocation, m.deliveryAddress, m.deliveryArea)
+            from MaterialMappingEntity m
+            where lower(m.factory) = lower(:factory) and m.deliveryArea in :deliveryAreas
+            order by m.lineMaterialCode asc, m.mappingOrder asc, m.id asc
+            """)
+    List<MaterialUsageMappingDto> findScopedMaterialUsageRows(@Param("factory") String factory,
+                                                               @Param("deliveryAreas") Collection<String> deliveryAreas);
     Page<MaterialMappingEntity> findByLineMaterialCodeContainingIgnoreCaseOrWarehouseCodeContainingIgnoreCaseOrWarehouseMaterialCodeContainingIgnoreCaseOrDeliveryAddressContainingIgnoreCaseOrderByLineMaterialCodeAscMappingOrderAscIdAsc(String lineMaterialCode, String warehouseCode, String warehouseMaterialCode, String deliveryAddress, Pageable pageable);
     @Query("select m from MaterialMappingEntity m where lower(m.factory) = lower(:factory) and m.deliveryArea in :deliveryAreas and (lower(m.lineMaterialCode) like lower(concat('%', :keyword, '%')) or lower(m.warehouseCode) like lower(concat('%', :keyword, '%')) or lower(m.warehouseMaterialCode) like lower(concat('%', :keyword, '%')) or lower(m.deliveryAddress) like lower(concat('%', :keyword, '%'))) order by m.lineMaterialCode asc, m.mappingOrder asc, m.id asc")
     Page<MaterialMappingEntity> findScoped(@Param("factory") String factory,
                                            @Param("deliveryAreas") Collection<String> deliveryAreas,
                                            @Param("keyword") String keyword,
                                            Pageable pageable);
+    @Query("select m from MaterialMappingEntity m where lower(m.factory) = lower(:factory) and (lower(m.lineMaterialCode) like lower(concat('%', :keyword, '%')) or lower(m.warehouseCode) like lower(concat('%', :keyword, '%')) or lower(m.warehouseMaterialCode) like lower(concat('%', :keyword, '%')) or lower(m.deliveryAddress) like lower(concat('%', :keyword, '%'))) order by m.lineMaterialCode asc, m.mappingOrder asc, m.id asc")
+    Page<MaterialMappingEntity> findFactoryScoped(@Param("factory") String factory,
+                                                   @Param("keyword") String keyword,
+                                                   Pageable pageable);
     long countByDeliveryArea(String deliveryArea);
 
     @Query("select distinct m.deliveryArea from MaterialMappingEntity m where lower(m.factory) = lower(:factory) and m.deliveryArea is not null and trim(m.deliveryArea) <> '' order by m.deliveryArea")
@@ -35,4 +61,8 @@ public interface MaterialMappingRepository extends JpaRepository<MaterialMapping
     @Modifying
     @Query("delete from MaterialMappingEntity m where lower(m.factory) = lower(:factory) and m.deliveryArea = :deliveryArea")
     int deleteByFactoryAndDeliveryArea(@Param("factory") String factory, @Param("deliveryArea") String deliveryArea);
+
+    @Modifying
+    @Query("delete from MaterialMappingEntity m where lower(m.factory) = lower(:factory)")
+    int deleteByFactory(@Param("factory") String factory);
 }

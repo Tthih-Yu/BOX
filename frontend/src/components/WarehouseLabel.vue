@@ -1,7 +1,10 @@
 <template>
   <div class="warehouse-label">
     <div class="wl-top">
-      <div class="wl-usage">{{ urgent ? '紧急配送(备用)' : '正常配送(使用)' }}</div>
+      <div class="wl-heading">
+        <div class="wl-status">{{ urgent ? '紧急配送-备用' : '正常配送-使用' }}</div>
+        <div class="wl-code">{{ field('warehouseCode', 'barcodeValue') }}</div>
+      </div>
       <div class="wl-barcode" v-html="barcodeSvg"></div>
     </div>
     <div class="wl-mid">
@@ -39,10 +42,12 @@ function field(...keys:string[]){
 
 <style>
 .warehouse-label{width:480px;height:300px;border:2px solid #111;background:#fff;color:#111;font-family:Arial,"Microsoft YaHei",sans-serif;box-sizing:border-box;display:flex;flex-direction:column;overflow:hidden}
-.warehouse-label .wl-top{display:flex;align-items:center;gap:10px;height:96px;flex:none;border-bottom:2px solid #111;padding:0 14px}
-.warehouse-label .wl-usage{flex:none;background:#111;color:#fff;border-radius:22px;padding:10px 16px;font-size:18px;font-weight:800;white-space:nowrap}
-.warehouse-label .wl-barcode{flex:1;display:flex;align-items:center;justify-content:center;overflow:hidden}
-.warehouse-label .wl-barcode svg{width:100%;height:82px;display:block}
+.warehouse-label .wl-top{display:flex;flex-direction:row;align-items:center;gap:8px;height:96px;flex:none;border-bottom:2px solid #111;padding:0 8px}
+.warehouse-label .wl-heading{flex:0 0 34%;min-width:0;display:flex;flex-direction:column;align-items:flex-start;justify-content:center;gap:5px;overflow:hidden}
+.warehouse-label .wl-status{font-size:15px;font-weight:700;line-height:1;white-space:nowrap}
+.warehouse-label .wl-code{font-size:32px;font-weight:900;line-height:1;letter-spacing:1px;white-space:nowrap}
+.warehouse-label .wl-barcode{flex:1;min-width:0;height:100%;display:flex;align-items:center;justify-content:center;overflow:hidden}
+.warehouse-label .wl-barcode svg{width:100%;height:auto;max-height:88px;display:block}
 .warehouse-label .wl-mid{display:flex;flex:1;border-bottom:2px solid #111;min-height:0}
 .warehouse-label .wl-mid>.wl-cell{flex:1;border-right:2px solid #111}
 .warehouse-label .wl-mid>.wl-cell:last-child{border-right:0}
@@ -64,9 +69,11 @@ function field(...keys:string[]){
   .warehouse-label-print-page{width:80mm!important;height:50mm!important;margin:0!important;padding:0!important;overflow:hidden!important;break-after:page!important;page-break-after:always!important}
   .warehouse-label-print-page:last-child{break-after:auto!important;page-break-after:auto!important}
   .warehouse-label{width:80mm!important;height:50mm!important;border-width:.3333mm!important}
-  .warehouse-label .wl-top{height:16mm!important;gap:1.6667mm!important;border-bottom-width:.3333mm!important;padding:0 2.3333mm!important}
-  .warehouse-label .wl-usage{border-radius:3.6667mm!important;padding:1.6667mm 2.6667mm!important;font-size:3mm!important}
-  .warehouse-label .wl-barcode svg{height:13.6667mm!important}
+  .warehouse-label .wl-top{height:16mm!important;gap:1.3333mm!important;border-bottom-width:.3333mm!important;padding:0 1.3333mm!important}
+  .warehouse-label .wl-heading{flex-basis:34%!important;gap:.8333mm!important}
+  .warehouse-label .wl-status{font-size:2.5mm!important}
+  .warehouse-label .wl-code{font-size:5.3333mm!important;letter-spacing:.1667mm!important}
+  .warehouse-label .wl-barcode svg{width:100%!important;height:auto!important;max-height:14.6667mm!important}
   .warehouse-label .wl-mid{border-bottom-width:.3333mm!important}
   .warehouse-label .wl-mid>.wl-cell,.warehouse-label .wl-bottom>.wl-cell{border-right-width:.3333mm!important}
   .warehouse-label .wl-cell{gap:.5mm!important;padding:1mm 1.6667mm!important}

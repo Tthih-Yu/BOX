@@ -31,6 +31,7 @@ public class PlanningService {
     private final AuditService auditService;
     private final RealtimePushService pushService;
     private final DataScopeService dataScopeService;
+    private final BarcodeVariantAssignmentService barcodeVariantAssignmentService;
 
     public List<ProductionPlanEntity> plans(String status) {
         PlanStatus parsed = status == null || status.isBlank() ? null : PlanStatus.valueOf(status.trim().toUpperCase(Locale.ROOT));
@@ -153,7 +154,10 @@ public class PlanningService {
             }
             if (createPullTasks && safe(d.getInventoryAvailable()).compareTo(BigDecimal.ZERO) > 0) {
                 List<ReplenishmentTaskEntity> createdTasks = createPlanPullTasks(plan, d);
-                for (ReplenishmentTaskEntity t : createdTasks) taskRepository.save(t);
+                for (ReplenishmentTaskEntity t : createdTasks) {
+                    barcodeVariantAssignmentService.assignIfNeeded(t);
+                    taskRepository.save(t);
+                }
                 if (!createdTasks.isEmpty()) {
                     d.setTaskNo(createdTasks.get(0).getTaskNo());
                     d.setTaskNos(createdTasks.stream().map(ReplenishmentTaskEntity::getTaskNo).collect(Collectors.joining(",")));

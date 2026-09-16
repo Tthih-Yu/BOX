@@ -146,6 +146,14 @@ public class LabelDtos {
         public Integer width = 360;
         public Integer height = 140;
         public Boolean includeText = true;
+        /**
+         * CODE_128 编码变体种子。不会写入条码内容；不同任务号可生成不同条纹，扫码值仍为 text。
+         */
+        public String variantKey;
+        /**
+         * 同一仓库代号下持久化的无冲突变体编号；优先级高于 variantKey。
+         */
+        public Integer variantNo;
     }
 
     public static class CodeRenderResponse {

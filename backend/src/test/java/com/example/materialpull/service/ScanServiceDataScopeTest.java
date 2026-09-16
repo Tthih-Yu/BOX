@@ -46,6 +46,7 @@ class ScanServiceDataScopeTest {
     @Mock StationMaterialRepository stationMaterialRepository;
     @Mock SystemConfigRepository configRepository;
     @Mock MaterialRepository materialRepository;
+    @Mock BarcodeVariantAssignmentService barcodeVariantAssignmentService;
     @Spy DataScopeService dataScopeService = new DataScopeService();
 
     @InjectMocks ScanService service;

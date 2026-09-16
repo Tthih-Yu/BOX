@@ -22,8 +22,11 @@
       style="display:none"
       @change="onFileChange"
     />
-    <el-dialog v-model="errDialog" title="导入错误明细" width="900px">
-      <p class="hint">
+    <el-dialog v-model="errDialog" :title="precheckFailed ? '预检错误明细' : '导入错误明细'" width="900px">
+      <p v-if="precheckFailed" class="hint precheck-hint">
+        预检未通过，数据库未写入任何料号映射。共检查 {{ lastBatch?.totalRows }} 行，发现 {{ lastBatch?.failedRows }} 行问题。
+      </p>
+      <p v-else class="hint">
         批次号 <b>{{ lastBatch?.batchNo }}</b>｜共 {{ lastBatch?.totalRows }} 行，
         成功 {{ lastBatch?.successRows }}，失败 {{ lastBatch?.failedRows }}。
       </p>
@@ -68,6 +71,7 @@ const uploadPercent = ref(0)
 const errDialog = ref(false)
 const errors = ref<any[]>([])
 const lastBatch = ref<any>(null)
+const precheckFailed = computed(() => Boolean(lastBatch.value?.precheckFailed))
 
 const currentRole = computed(() => {
   try { return JSON.parse(localStorage.getItem('loginUser') || '{}').role || '' } catch { return '' }
@@ -121,7 +125,9 @@ async function onFileChange(e: Event){
     const failed = batch?.failedRows ?? 0
     if (failed > 0) {
       errors.value = await get(`/imports/${batch.batchNo}/errors`)
-      ElMessage.warning(`导入完成：成功 ${success} 行，失败 ${failed} 行，请查看错误明细`)
+      ElMessage.warning(batch?.precheckFailed
+        ? `预检未通过：发现 ${failed} 行问题，未写入任何数据`
+        : `导入完成：成功 ${success} 行，失败 ${failed} 行，请查看错误明细`)
       errDialog.value = true
     } else {
       ElMessage.success(`导入完成：共 ${total} 行，全部成功`)
@@ -145,4 +151,5 @@ async function onFileChange(e: Event){
 .import-btn-wrap { display: inline-flex; align-items: center; gap: 8px; margin-left: 8px; }
 .tpl-link { margin-left: 4px; }
 .hint { color: #64748b; font-size: 13px; margin-top: 0; }
+.precheck-hint { color: #b45309; font-weight: 600; }
 </style>

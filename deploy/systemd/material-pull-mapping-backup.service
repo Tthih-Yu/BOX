@@ -1,0 +1,24 @@
+[Unit]
+Description=Material Pull - Material Mapping Backup
+After=local-fs.target mysql.service
+Wants=mysql.service
+ConditionPathExists=/opt/apps/material-pull/deploy/scripts/material-mapping-backup.sh
+
+[Service]
+Type=oneshot
+User=tthih
+Group=tthih
+WorkingDirectory=/opt/apps/material-pull
+EnvironmentFile=/etc/material-pull/material-pull.env
+Environment=MAPPING_BACKUP_DIR=/opt/apps/material-pull/db-backups/mappings
+Environment=MAPPING_BACKUP_RETENTION_DAYS=365
+ExecStart=/opt/apps/material-pull/deploy/scripts/material-mapping-backup.sh
+UMask=0077
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/opt/apps/material-pull/db-backups/mappings

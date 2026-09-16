@@ -36,6 +36,7 @@ class PlanningServiceDataScopeTest {
     @Mock MaterialMappingRepository mappingRepository;
     @Mock AuditService auditService;
     @Mock RealtimePushService pushService;
+    @Mock BarcodeVariantAssignmentService barcodeVariantAssignmentService;
     @Spy DataScopeService dataScopeService = new DataScopeService();
     @InjectMocks PlanningService service;
 

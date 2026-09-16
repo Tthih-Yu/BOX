@@ -37,6 +37,7 @@ public class ScanService {
     private final SystemConfigRepository configRepository;
     private final MaterialRepository materialRepository;
     private final DataScopeService dataScopeService;
+    private final BarcodeVariantAssignmentService barcodeVariantAssignmentService;
 
     @Value("${app.task.timeout-minutes:120}")
     private long timeoutMinutes;
@@ -316,6 +317,7 @@ public class ScanService {
 
         ReplenishmentTaskEntity task = createTask(req, current);
         task.setMaterialImageUrl(label.getMaterialImageUrl());
+        barcodeVariantAssignmentService.assignIfNeeded(task);
         taskRepository.save(task);
 
         auditService.scan(resolvedLabelCode, current.getBoxCode(), "EMPTY", true, "扫码成功，生成补货任务：" + task.getTaskNo() + "，原始扫码=" + req.scanCode, req.operator, req.deviceNo, current.getStationCode(), current.getMaterialCode(), task.getFactory(), task.getDeliveryArea());
@@ -384,6 +386,7 @@ public class ScanService {
         task.setPriority(PriorityLevel.URGENT);
         task.setDeadlineAt(LocalDateTime.now().plusMinutes(Math.min(timeoutMinutes, 30)));
         task.setRemark("现场扫描备用标签，原使用盒已切为空盒待补；任务绑定空盒，避免补回正在使用的备用盒");
+        barcodeVariantAssignmentService.assignIfNeeded(task);
         taskRepository.save(task);
         auditService.scan(resolvedLabelCode, otherBox.getBoxCode(), "SPARE_URGENT", true, "扫描备用标签，生成紧急补货任务：" + task.getTaskNo(), req.operator, req.deviceNo, otherBox.getStationCode(), otherBox.getMaterialCode(), task.getFactory(), task.getDeliveryArea());
         auditService.task(task.getTaskNo(), "CREATE_BY_SPARE_LABEL", null, task.getStatus().name(), req.operator, task.getRemark());
@@ -433,6 +436,7 @@ public class ScanService {
             task.setDeadlineAt(LocalDateTime.now().plusMinutes(Math.min(timeoutMinutes, 30)));
             task.setRemark("按备用标签生成紧急配送任务");
         }
+        barcodeVariantAssignmentService.assignIfNeeded(task);
         taskRepository.save(task);
 
         auditService.scan(resolvedLabelCode, null, "DIRECT_PULL", true, "真实工厂标签扫码成功，生成补货任务：" + task.getTaskNo() + "，原始扫码=" + req.scanCode, req.operator, req.deviceNo, firstNonBlank(label.getSendStationAddress(), label.getDeliveryAddress(), label.getStationCode()), label.getMaterialCode(), task.getFactory(), task.getDeliveryArea());
@@ -483,6 +487,7 @@ public class ScanService {
         }
 
         ReplenishmentTaskEntity task = createTaskFromMapping(req, mapping, station.orElse(null), stationCode, spare);
+        barcodeVariantAssignmentService.assignIfNeeded(task);
         taskRepository.save(task);
         auditService.scan(materialCode, null, spare ? "MATERIAL_PULL_URGENT" : "MATERIAL_PULL", true, "现场扫码成功，生成" + (spare ? "紧急" : "正常") + "补货任务：" + task.getTaskNo() + "，仓库代号=" + task.getWarehouseCode(), req.operator, req.deviceNo, task.getSendStationAddress(), task.getMaterialCode(), task.getFactory(), task.getDeliveryArea());
         auditService.task(task.getTaskNo(), spare ? "CREATE_BY_MATERIAL_URGENT" : "CREATE_BY_MATERIAL", null, task.getStatus().name(), req.operator, "由工位二维码(物料号+工位+" + (spare ? "备用" : "使用") + ")生成");

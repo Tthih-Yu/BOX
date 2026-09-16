@@ -10,8 +10,8 @@ export const ROLE_SETS:Record<string, UserRole[]> = {
   warehouse: ['ADMIN','WAREHOUSE'],
   warehousePlanner: ['ADMIN','PLANNER','WAREHOUSE'],
   lineOps: ['ADMIN','WAREHOUSE','LINE'],
-  // 料号映射“追加式导入”的可用角色。普通管理员(SUB_ADMIN)仅有此项，不含单条增删改/覆盖/清空。
-  mappingImport: ['ADMIN','PLANNER','WAREHOUSE','SUB_ADMIN'],
+  // 料号映射管理（导入、导出、新增、编辑、删除）仅限两级管理员。
+  mappingManage: ['ADMIN','SUB_ADMIN'],
 }
 
 export interface RouteMetaItem { path:string; title:string; roles:UserRole[]; menu?:boolean; group?:string; icon?:string }

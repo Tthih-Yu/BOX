@@ -5,14 +5,14 @@
     save-url="/mappings"
     delete-url="/mappings"
     :columns="columns"
-    :write-roles="ROLE_SETS.planner"
+    :write-roles="ROLE_SETS.mappingManage"
     server-pagination
   >
     <template #toolbar-extra="{ reload }">
       <ImportButton
         type="mappings"
         template-url="/import_templates/mappings.csv"
-        :write-roles="ROLE_SETS.mappingImport"
+        :write-roles="ROLE_SETS.mappingManage"
         @imported="reload"
       />
       <ImportButton
@@ -21,11 +21,12 @@
         label="覆盖上传"
         :overwrite="true"
         :template-url="''"
-        :write-roles="ROLE_SETS.planner"
+        :write-roles="ROLE_SETS.mappingManage"
         :before-pick="confirmOverwrite"
         @imported="reload"
       />
       <el-button
+        v-if="canWrite"
         type="primary"
         :icon="Download"
         :loading="exporting"
@@ -43,7 +44,7 @@
         </el-button>
         <template #dropdown>
           <el-dropdown-menu>
-            <el-dropdown-item command="ALL">删除全部数据</el-dropdown-item>
+            <el-dropdown-item command="ALL">{{ isSubAdmin ? '删除本工厂全部数据' : '删除全部数据' }}</el-dropdown-item>
             <el-dropdown-item command="AREA">按配送区域删除</el-dropdown-item>
           </el-dropdown-menu>
         </template>
@@ -74,7 +75,7 @@ import CrudTable from '../components/CrudTable.vue'
 import ImportButton from '../components/ImportButton.vue'
 import { ROLE_SETS } from '../permissions'
 import { get, del, downloadBlob } from '../api'
-import { hasAnyRole } from '../auth'
+import { currentRole, hasAnyRole } from '../auth'
 import { doubleCountdownConfirm } from '../confirm'
 
 const tableRef = ref<any>(null)
@@ -83,7 +84,8 @@ const areaDialog = ref(false)
 const areaValue = ref('')
 const areaOptions = ref<string[]>([])
 
-const canWrite = computed(() => hasAnyRole(ROLE_SETS.planner as any))
+const canWrite = computed(() => hasAnyRole(ROLE_SETS.mappingManage as any))
+const isSubAdmin = computed(() => currentRole() === 'SUB_ADMIN')
 
 function reloadTable() {
   tableRef.value?.load?.()
@@ -110,7 +112,10 @@ async function confirmOverwrite(): Promise<boolean> {
 async function onBatchDelete(command: string) {
   if (command === 'ALL') {
     try {
-      await doubleCountdownConfirm('批量删除全部', '将删除全部料号映射数据')
+      await doubleCountdownConfirm(
+        isSubAdmin.value ? '批量删除本工厂全部' : '批量删除全部',
+        isSubAdmin.value ? '将删除本工厂的全部料号映射数据' : '将删除全部料号映射数据'
+      )
     } catch { return }
     const res: any = await del('/mappings', { scope: 'ALL' })
     ElMessage.success(`已删除 ${res?.deleted ?? 0} 条数据`)

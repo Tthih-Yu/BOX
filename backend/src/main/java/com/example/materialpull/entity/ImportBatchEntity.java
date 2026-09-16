@@ -21,5 +21,8 @@ public class ImportBatchEntity {
     private String operator;
     private LocalDateTime startedAt;
     private LocalDateTime finishedAt;
+    /** 仅用于本次接口响应，标识料号映射文件在写库前被预检拦截。 */
+    @Transient
+    private Boolean precheckFailed = false;
     @PrePersist public void prePersist(){ startedAt = LocalDateTime.now(); }
 }

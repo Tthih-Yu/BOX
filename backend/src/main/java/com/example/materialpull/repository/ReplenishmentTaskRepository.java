@@ -1,5 +1,6 @@
 package com.example.materialpull.repository;
 
+import com.example.materialpull.dto.MaterialUsageTaskDto;
 import com.example.materialpull.entity.ReplenishmentTaskEntity;
 import com.example.materialpull.enums.TaskStatus;
 import jakarta.persistence.LockModeType;
@@ -11,6 +12,8 @@ import java.util.*;
 
 public interface ReplenishmentTaskRepository extends JpaRepository<ReplenishmentTaskEntity, Long> {
     Optional<ReplenishmentTaskEntity> findByTaskNo(String taskNo);
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    Optional<ReplenishmentTaskEntity> findFirstByWarehouseCodeAndBarcodeVariantNoIsNotNullOrderByBarcodeVariantNoDesc(String warehouseCode);
     List<ReplenishmentTaskEntity> findByTaskNoIn(Collection<String> taskNos);
     List<ReplenishmentTaskEntity> findTop20ByOrderByCreatedAtDesc();
     List<ReplenishmentTaskEntity> findTop1000ByOrderByCreatedAtDesc();
@@ -38,6 +41,33 @@ public interface ReplenishmentTaskRepository extends JpaRepository<Replenishment
             String factory, Collection<String> deliveryAreas);
     List<ReplenishmentTaskEntity> findByFactoryIgnoreCaseAndDeliveryAreaInAndCreatedAtBetweenOrderByCreatedAtDesc(
             String factory, Collection<String> deliveryAreas, LocalDateTime from, LocalDateTime to);
+
+    @Query("""
+            select new com.example.materialpull.dto.MaterialUsageTaskDto(
+                t.factory, t.stationCode, t.stationName, t.sendStationAddress, t.deliveryAddress,
+                t.materialCode, t.sourceLabelCode, t.deliveryArea, t.status, t.requestQty, t.requestUnit,
+                t.warehouseCode, t.warehouseMaterialCode, t.warehouseAddress, t.warehouseLocation, t.createdAt)
+            from ReplenishmentTaskEntity t
+            where t.createdAt >= :from and t.createdAt < :to
+            order by t.createdAt desc
+            """)
+    List<MaterialUsageTaskDto> findMaterialUsageRows(@Param("from") LocalDateTime from,
+                                                      @Param("to") LocalDateTime to);
+
+    @Query("""
+            select new com.example.materialpull.dto.MaterialUsageTaskDto(
+                t.factory, t.stationCode, t.stationName, t.sendStationAddress, t.deliveryAddress,
+                t.materialCode, t.sourceLabelCode, t.deliveryArea, t.status, t.requestQty, t.requestUnit,
+                t.warehouseCode, t.warehouseMaterialCode, t.warehouseAddress, t.warehouseLocation, t.createdAt)
+            from ReplenishmentTaskEntity t
+            where lower(t.factory) = lower(:factory) and t.deliveryArea in :deliveryAreas
+              and t.createdAt >= :from and t.createdAt < :to
+            order by t.createdAt desc
+            """)
+    List<MaterialUsageTaskDto> findScopedMaterialUsageRows(@Param("factory") String factory,
+                                                            @Param("deliveryAreas") Collection<String> deliveryAreas,
+                                                            @Param("from") LocalDateTime from,
+                                                            @Param("to") LocalDateTime to);
     List<ReplenishmentTaskEntity> findTop500ByStatusInAndPrintGeneratedFalseOrderByCreatedAtAsc(List<TaskStatus> statuses);
     List<ReplenishmentTaskEntity> findByStatusInAndPrintGeneratedFalseAndPrintJobNoIsNullOrderByCreatedAtAsc(Collection<TaskStatus> statuses);
     List<ReplenishmentTaskEntity> findByFactoryAndDeliveryAreaInAndStatusInAndPrintGeneratedFalseAndPrintJobNoIsNullOrderByCreatedAtAsc(

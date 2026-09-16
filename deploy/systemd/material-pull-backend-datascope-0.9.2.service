@@ -1,10 +1,11 @@
-# 发布候选草案：尚未安装到 /etc/systemd/system，不能直接视为已部署配置。
-# 依据 2026-09-01 只读取得的现网 material-pull-backend.service 生成。
+# 物料拉动系统后端 systemd 服务配置。
+# 安装或更新到 /etc/systemd/system 后需执行 systemctl daemon-reload。
 [Unit]
 Description=Material Pull System Backend
 After=network-online.target mysql.service
-Wants=network-online.target
-Requires=mysql.service
+# MySQL 升级会临时停止 mysql.service。使用 Wants 而不是 Requires，
+# 避免 systemd 在数据库维护重启时连带停止后端且不再自动拉起。
+Wants=network-online.target mysql.service
 
 [Service]
 Type=simple

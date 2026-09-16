@@ -35,11 +35,14 @@ public class ImportController {
     public ApiResponse<ImportBatchEntity> upload(@PathVariable String type,
                                                  @RequestParam MultipartFile file,
                                                  @RequestParam(value = "overwrite", required = false, defaultValue = "false") boolean overwrite) throws Exception {
-        // 普通管理员（SUB_ADMIN）只在料号映射范围内操作，可覆盖上传，但不能导入其它数据类型。
-        if (RequestContext.getRole() == UserRole.SUB_ADMIN && !"mappings".equals(type)) {
+        String normalizedType = type == null ? "" : type.trim();
+        // 料号映射导入（包括覆盖上传）仅限两级管理员；普通管理员只操作所属工厂。
+        if ("mappings".equals(normalizedType)) {
+            RequestContext.requireAnyRole(UserRole.ADMIN, UserRole.SUB_ADMIN);
+        } else if (RequestContext.getRole() == UserRole.SUB_ADMIN) {
             throw new BusinessException(ErrorCode.FORBIDDEN, "普通管理员只能导入料号映射");
         }
-        return ApiResponse.ok(importService.importExcel(type, file, OperatorResolver.currentOperator(), overwrite));
+        return ApiResponse.ok(importService.importExcel(normalizedType, file, OperatorResolver.currentOperator(), overwrite));
     }
 
     @GetMapping public ApiResponse<List<ImportBatchEntity>> batches() {
@@ -48,7 +51,16 @@ public class ImportController {
     }
 
     @GetMapping("/{batchNo}/errors") public ApiResponse<List<ImportErrorEntity>> errors(@PathVariable String batchNo) {
-        dataScopeService.requireGlobalAdmin();
+        if (!dataScopeService.isGlobalAdmin()) {
+            RequestContext.requireAnyRole(UserRole.SUB_ADMIN);
+            ImportBatchEntity batch = batchRepository.findByBatchNo(batchNo)
+                    .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "导入批次不存在：" + batchNo));
+            boolean ownMappingBatch = "mappings".equals(batch.getImportType())
+                    && OperatorResolver.currentOperator().equals(batch.getOperator());
+            if (!ownMappingBatch) {
+                throw new BusinessException(ErrorCode.FORBIDDEN, "普通管理员只能查看本人料号映射导入的错误明细");
+            }
+        }
         return ApiResponse.ok(errorRepository.findByBatchNoOrderByRowNoAsc(batchNo));
     }
 }

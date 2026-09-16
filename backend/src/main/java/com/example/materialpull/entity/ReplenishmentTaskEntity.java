@@ -13,10 +13,12 @@ import java.time.LocalDateTime;
         @Index(name = "idx_task_station_material", columnList = "stationCode,materialCode"),
         @Index(name = "idx_task_kanban", columnList = "kanbanCardNo"),
         @Index(name = "idx_task_warehouse_code", columnList = "warehouseCode"),
+        @Index(name = "uk_task_warehouse_barcode_variant", columnList = "warehouseCode,barcodeVariantNo", unique = true),
         @Index(name = "idx_task_delivery", columnList = "projectCode,routeName,deliveryAddress"),
         @Index(name = "idx_task_delivery_area", columnList = "deliveryArea,warehouseAddress"),
         @Index(name = "idx_task_priority", columnList = "priority"),
         @Index(name = "idx_task_deadline", columnList = "deadlineAt"),
+        @Index(name = "idx_task_created_at", columnList = "createdAt"),
         @Index(name = "idx_task_plan", columnList = "planNo,demandNo")
 })
 public class ReplenishmentTaskEntity {
@@ -29,6 +31,11 @@ public class ReplenishmentTaskEntity {
     private String sourceLabelCode;
     private String barcodeValue;
     private String warehouseCode;
+    /**
+     * 同一六位仓库代号下永久递增的条码变体编号。
+     * 编号只选择 CODE_128 编码路径，不进入扫码内容。
+     */
+    private Integer barcodeVariantNo;
     private String warehouseAddress;
     private String sendStationAddress;
     private String boxSize;

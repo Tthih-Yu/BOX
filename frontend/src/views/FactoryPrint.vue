@@ -483,36 +483,28 @@ async function printRows(inputRows:any[], successPrefix:string){
 async function batchPrint(){
   await printRows(oneFactoryRows(batchRows()), '已调起筛选结果打印')
 }
-const barcodeSvgCache = new Map<string, string>()
-const barcodeSvgInflight = new Map<string, Promise<string>>()
-async function getBarcodeSvg(codeValue:any){
-  const code = String(codeValue || '').trim()
+async function getBarcodeSvg(row:any){
+  const code = String(row?.warehouseCode || row?.barcodeValue || '').trim()
   if (!code) return ''
-  const cached = barcodeSvgCache.get(code)
-  if (cached) return cached
-  const existing = barcodeSvgInflight.get(code)
-  if (existing) return existing
-  const request = post('/labels/code/render', { text:code, format:'CODE_128', width:520, height:150, includeText:true })
-    .then((result:any) => {
-      const svg = String(result?.svg || '')
-      if (svg) {
-        barcodeSvgCache.set(code, svg)
-        if (barcodeSvgCache.size > 200) barcodeSvgCache.delete(barcodeSvgCache.keys().next().value as string)
-      }
-      return svg
-    })
-    .finally(() => barcodeSvgInflight.delete(code))
-  barcodeSvgInflight.set(code, request)
-  return request
+  const result:any = await post('/labels/code/render', {
+    text:code,
+    variantKey:String(row?.taskNo || ''),
+    variantNo:row?.barcodeVariantNo,
+    format:'CODE_128',
+    width:400,
+    height:100,
+    includeText:false
+  })
+  return String(result?.svg || '')
 }
-// 同一仓库代号只请求一次；预览、批量打印及并发调用共享 SVG 缓存。
+// 每张任务标签独立生成；variantKey 只改变 CODE_128 编码路径，扫码值仍是仓库代号。
 async function renderBarcodes(rows:any[]){
   const map:Record<string, string> = {}
   await Promise.all(rows.map(async (row) => {
     const code = row.warehouseCode || row.barcodeValue
     if (!code) return
     try {
-      const svg = await getBarcodeSvg(code)
+      const svg = await getBarcodeSvg(row)
       if (svg) map[row.taskNo] = svg
     } catch {}
   }))
@@ -525,7 +517,7 @@ async function previewPending(row:any){
   const code = row.warehouseCode || row.barcodeValue
   if (code) {
     try {
-      previewBarcodeSvg.value = await getBarcodeSvg(code)
+      previewBarcodeSvg.value = await getBarcodeSvg(row)
     } catch (e:any) {
       ElMessage.error(e?.response?.data?.message || e?.message || '条形码生成失败')
     }

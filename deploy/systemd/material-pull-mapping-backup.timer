@@ -1,0 +1,12 @@
+[Unit]
+Description=Material Pull - Daily Material Mapping Backup
+
+[Timer]
+OnCalendar=*-*-* 02:15:00 Asia/Shanghai
+Persistent=true
+RandomizedDelaySec=5m
+AccuracySec=1m
+Unit=material-pull-mapping-backup.service
+
+[Install]
+WantedBy=timers.target

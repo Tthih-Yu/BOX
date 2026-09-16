@@ -55,7 +55,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef } from 'vue'
 import * as echarts from 'echarts'
 import { get } from '../api'
 import { ElMessage } from 'element-plus'
@@ -70,7 +70,7 @@ const dateShortcuts=[
   {text:'本月',value:()=>[new Date(today.getFullYear(),today.getMonth(),1),today]},
   {text:'上月',value:()=>[new Date(today.getFullYear(),today.getMonth()-1,1),new Date(today.getFullYear(),today.getMonth(),0)]}
 ]
-const loading=ref(false), tasks=ref<any[]>([]), mappings=ref<any[]>([]), historyNote=ref('')
+const loading=ref(false), tasks=shallowRef<any[]>([]), mappings=shallowRef<any[]>([]), historyNote=ref('')
 const factoryFilter=ref<string[]>([]), materialFilter=ref<string[]>([]), stationFilter=ref<string[]>([]), areaFilter=ref<string[]>([]), statusFilter=ref<string[]>([])
 const materialRankMode=ref<'count'|'qty'>('count'), tableKeyword=ref(''), page=ref(1), pageSize=ref(20)
 const trendEl=ref(),factoryEl=ref(),materialEl=ref(),stationEl=ref(),areaEl=ref(),cancelEl=ref()
@@ -97,7 +97,8 @@ async function load(){
   try{
     let d:any
     try{d=await get('/material-usage-dashboard',{from:dateRange.value[0],to:dateRange.value[1]})}
-    catch{
+    catch(e:any){
+      if(e?.response?.status!==404)throw e
       const [allTasks,allMappings]:any[]=await Promise.all([get('/tasks'),get('/mappings')])
       const from=dateRange.value[0],to=dateRange.value[1]
       d={tasks:(allTasks||[]).filter((t:any)=>{const x=String(t.createdAt||'').slice(0,10);return x>=from&&x<=to}),mappings:allMappings||[],historyNote:'当前使用兼容统计模式（最多读取现有任务接口最近 1000 条）；后端统计接口发布后自动切换完整日期范围。'}
@@ -127,13 +128,30 @@ function renderCharts(){
   })
 }
 const mappingKey=(m:any)=>norm(m.warehouseCode||m.warehouseMaterialCode||m.lineMaterialCode)
+const taskMappingKey=(t:any)=>norm(t.warehouseCode||t.warehouseMaterialCode||t.materialCode)
+type MaterialTaskStats={requestCount:number;validCount:number;qtyByUnit:Record<string,number>;latest:any}
+const materialTaskStats=computed(()=>{
+  const result=new Map<string,MaterialTaskStats>()
+  for(const task of filteredTasks.value){
+    const key=taskMappingKey(task)
+    let stats=result.get(key)
+    if(!stats){stats={requestCount:0,validCount:0,qtyByUnit:{},latest:task};result.set(key,stats)}
+    stats.requestCount++
+    if(String(task.createdAt||'')>String(stats.latest?.createdAt||''))stats.latest=task
+    if(task.status!=='CANCELLED'){
+      stats.validCount++
+      const unit=norm(task.requestUnit,'个')
+      stats.qtyByUnit[unit]=(stats.qtyByUnit[unit]||0)+Number(task.requestQty||0)
+    }
+  }
+  return result
+})
 const materialRows=computed(()=>mappings.value.map(m=>{
-  const related=filteredTasks.value.filter(t=>norm(t.warehouseCode||t.warehouseMaterialCode||t.materialCode)===mappingKey(m))
-  const valid=related.filter(t=>t.status!=='CANCELLED'),qtyByUnit:Record<string,number>={}
-  valid.forEach(t=>{const u=norm(t.requestUnit,'个');qtyByUnit[u]=(qtyByUnit[u]||0)+Number(t.requestQty||0)})
-  const latest=related[0]
+  const stats=materialTaskStats.value.get(mappingKey(m))
+  const requestCount=stats?.requestCount||0,validCount=stats?.validCount||0,qtyByUnit=stats?.qtyByUnit||{}
+  const latest=stats?.latest
   const changed=!!latest&&[factoryOf(latest),stationOf(latest),norm(latest.warehouseAddress||latest.warehouseLocation),norm(latest.deliveryAddress||latest.sendStationAddress),areaOf(latest)].join('|')!==[factoryOf(m),norm(m.stationCode,'未维护工位'),norm(m.warehouseLocation),norm(m.deliveryAddress),areaOf(m)].join('|')
-  return{...m,factory:factoryOf(m),requestCount:related.length,validCount:valid.length,cancelCount:related.length-valid.length,qtyByUnit,lastScanAt:latest?.createdAt?new Date(latest.createdAt).toLocaleString():'-',mappingChanged:changed}
+  return{...m,factory:factoryOf(m),requestCount,validCount,cancelCount:requestCount-validCount,qtyByUnit,lastScanAt:latest?.createdAt?new Date(latest.createdAt).toLocaleString():'-',mappingChanged:changed}
 }))
 const materialRowsFiltered=computed(()=>{const k=tableKeyword.value.trim().toLowerCase();return k?materialRows.value.filter(r=>Object.values(r).join(' ').toLowerCase().includes(k)):materialRows.value})
 const pagedMaterialRows=computed(()=>materialRowsFiltered.value.slice((page.value-1)*pageSize.value,page.value*pageSize.value))
