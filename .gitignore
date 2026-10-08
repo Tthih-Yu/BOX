@@ -9,7 +9,7 @@
 .m2-repo/
 /androidAPP/**/build/
 /androidAPP/**/.gradle/
-/androidAPP/app/release/
+/androidAPP/**/app/release/
 *.apk
 /print-agent/bin/
 /print-agent/obj/
