@@ -6,6 +6,9 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.util.Optional;
 
 @Component
 @Order(1)
@@ -14,9 +17,9 @@ public class SystemConfigBootstrapRunner implements CommandLineRunner {
     private final SystemConfigRepository configRepository;
 
     @Override
+    @Transactional
     public void run(String... args) {
-        ensure("task.dedup.window-minutes", "3", "补货任务去重时间窗(分钟)",
-                "同一仓库代号在该时间窗内重复扫码将被判为重复申请并拦截；超过该时间窗再次扫码视为新一轮用料，正常生成任务。设为0表示不做时间窗拦截。");
+        consolidateDedupConfig();
         ensure("task.auto-urgent.minutes", "0", "正常任务自动升级紧急的超时(分钟)",
                 "一条正常配送任务从创建起超过该分钟数仍未完成，系统将自动把它升级为紧急任务。设为0表示关闭自动升级。");
         ensure("print.auto.enabled", "false", "定时自动打印标签开关",
@@ -48,6 +51,80 @@ public class SystemConfigBootstrapRunner implements CommandLineRunner {
                 "标签纸的实际宽度(毫米)，横版标签为 80。与 dpi 一起决定打印宽度点数。");
         ensure("print.label.height-mm", "50", "标签物理高度(mm)",
                 "标签纸的实际高度(毫米)，横版标签为 50。与 dpi 一起决定标签长度点数。");
+    }
+
+    /**
+     * 把旧的“开关 + 秒 + 分钟”配置合并为单一秒数配置：0=关闭，>=5=开启。
+     * 迁移优先保持旧开关的实际效果；只有旧开关不存在时才继承旧时间值。
+     */
+    private void consolidateDedupConfig() {
+        Optional<SystemConfigEntity> enabled = configRepository.findByConfigKey("task.dedup.enabled");
+        Optional<SystemConfigEntity> seconds = configRepository.findByConfigKey("task.dedup.window-seconds");
+        Optional<SystemConfigEntity> minutes = configRepository.findByConfigKey("task.dedup.window-minutes");
+
+        long effectiveSeconds;
+        if (enabled.isPresent()) {
+            effectiveSeconds = isEnabled(enabled.get().getConfigValue())
+                    ? resolvePositiveSeconds(seconds, minutes)
+                    : 0;
+        } else if (seconds.isPresent()) {
+            effectiveSeconds = normalizeSeconds(seconds.get().getConfigValue(), 0);
+        } else if (minutes.isPresent()) {
+            effectiveSeconds = minutesToSeconds(minutes.get().getConfigValue(), 60);
+        } else {
+            effectiveSeconds = 0;
+        }
+
+        SystemConfigEntity merged = seconds.orElseGet(SystemConfigEntity::new);
+        merged.setConfigKey("task.dedup.window-seconds");
+        merged.setConfigValue(Long.toString(effectiveSeconds));
+        merged.setConfigName("补货任务去重时间窗(秒，0=关闭)");
+        merged.setRemark("单一去重参数：0表示关闭；大于等于5表示开启，并在对应秒数内禁止同一仓库代号重复生成。修改后立即生效。");
+        merged.setEditable(true);
+        configRepository.save(merged);
+
+        enabled.ifPresent(configRepository::delete);
+        minutes.ifPresent(configRepository::delete);
+    }
+
+    private long resolvePositiveSeconds(Optional<SystemConfigEntity> seconds,
+                                        Optional<SystemConfigEntity> minutes) {
+        if (seconds.isPresent()) {
+            long value = normalizeSeconds(seconds.get().getConfigValue(), -1);
+            if (value > 0) return value;
+        }
+        if (minutes.isPresent()) {
+            long value = minutesToSeconds(minutes.get().getConfigValue(), -1);
+            if (value > 0) return value;
+        }
+        return 60;
+    }
+
+    private long normalizeSeconds(String raw, long fallback) {
+        try {
+            long value = Long.parseLong(raw == null ? "" : raw.trim());
+            if (value <= 0) return 0;
+            return Math.max(5, value);
+        } catch (NumberFormatException e) {
+            return fallback;
+        }
+    }
+
+    private long minutesToSeconds(String raw, long fallback) {
+        try {
+            long minutes = Long.parseLong(raw == null ? "" : raw.trim());
+            if (minutes <= 0) return 0;
+            return Math.max(5, Math.multiplyExact(minutes, 60));
+        } catch (RuntimeException e) {
+            return fallback;
+        }
+    }
+
+    private boolean isEnabled(String raw) {
+        if (raw == null) return false;
+        String value = raw.trim();
+        return "true".equalsIgnoreCase(value) || "1".equals(value)
+                || "on".equalsIgnoreCase(value) || "yes".equalsIgnoreCase(value);
     }
 
     private void ensure(String key, String defaultValue, String name, String remark) {

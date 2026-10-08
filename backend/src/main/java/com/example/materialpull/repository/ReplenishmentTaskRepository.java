@@ -4,6 +4,7 @@ import com.example.materialpull.dto.MaterialUsageTaskDto;
 import com.example.materialpull.entity.ReplenishmentTaskEntity;
 import com.example.materialpull.enums.TaskStatus;
 import jakarta.persistence.LockModeType;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.*;
 import org.springframework.data.repository.query.Param;
 
@@ -14,6 +15,18 @@ public interface ReplenishmentTaskRepository extends JpaRepository<Replenishment
     Optional<ReplenishmentTaskEntity> findByTaskNo(String taskNo);
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     Optional<ReplenishmentTaskEntity> findFirstByWarehouseCodeAndBarcodeVariantNoIsNotNullOrderByBarcodeVariantNoDesc(String warehouseCode);
+    @Query("""
+            select t from ReplenishmentTaskEntity t
+            where lower(t.factory) = lower(:factory)
+              and t.materialCode = :materialCode
+              and t.warehouseCode in :warehouseCodes
+              and t.printStatus = 'PRINTED'
+            order by t.createdAt desc, t.id desc
+            """)
+    List<ReplenishmentTaskEntity> findRotationHistory(@Param("factory") String factory,
+                                                       @Param("materialCode") String materialCode,
+                                                       @Param("warehouseCodes") Collection<String> warehouseCodes,
+                                                       Pageable pageable);
     List<ReplenishmentTaskEntity> findByTaskNoIn(Collection<String> taskNos);
     List<ReplenishmentTaskEntity> findTop20ByOrderByCreatedAtDesc();
     List<ReplenishmentTaskEntity> findTop1000ByOrderByCreatedAtDesc();

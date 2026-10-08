@@ -2,7 +2,10 @@ package com.example.materialpull.repository;
 
 import com.example.materialpull.dto.MaterialUsageMappingDto;
 import com.example.materialpull.entity.MaterialMappingEntity;
+import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -10,9 +13,17 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import java.util.*;
 
-public interface MaterialMappingRepository extends JpaRepository<MaterialMappingEntity, Long> {
+public interface MaterialMappingRepository extends JpaRepository<MaterialMappingEntity, Long>, JpaSpecificationExecutor<MaterialMappingEntity> {
     Optional<MaterialMappingEntity> findByLineMaterialCodeAndEnabledTrue(String lineMaterialCode);
     List<MaterialMappingEntity> findByLineMaterialCodeAndEnabledTrueOrderByMappingOrderAscIdAsc(String lineMaterialCode);
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("""
+            select m from MaterialMappingEntity m
+            where m.lineMaterialCode = :lineMaterialCode and m.enabled = true
+            order by m.mappingOrder asc, m.id asc
+            """)
+    List<MaterialMappingEntity> findByLineMaterialCodeForRotationUpdate(
+            @Param("lineMaterialCode") String lineMaterialCode);
     List<MaterialMappingEntity> findByFactoryIgnoreCaseAndLineMaterialCodeAndEnabledTrueOrderByMappingOrderAscIdAsc(
             String factory, String lineMaterialCode);
     Optional<MaterialMappingEntity> findFirstByLineMaterialCodeAndDeliveryTypeAndEnabledTrueOrderByMappingOrderAscIdAsc(String lineMaterialCode, String deliveryType);

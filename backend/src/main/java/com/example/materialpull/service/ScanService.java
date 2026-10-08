@@ -38,14 +38,15 @@ public class ScanService {
     private final MaterialRepository materialRepository;
     private final DataScopeService dataScopeService;
     private final BarcodeVariantAssignmentService barcodeVariantAssignmentService;
+    private final WarehouseCodeRotationService warehouseCodeRotationService;
 
     @Value("${app.task.timeout-minutes:120}")
     private long timeoutMinutes;
 
-    /** 物料号扫码去重时间窗（分钟）配置键。后台“系统配置”页可改，扫码时实时读取，无需重启。 */
-    private static final String DEDUP_WINDOW_KEY = "task.dedup.window-minutes";
-    /** 默认去重时间窗：3 分钟。 */
-    private static final long DEDUP_WINDOW_DEFAULT = 3;
+    /** 物料号扫码时间窗：0=关闭，正数最小 5 秒；后台“系统参数”页可实时修改。 */
+    private static final String DEDUP_WINDOW_SECONDS_KEY = "task.dedup.window-seconds";
+    private static final long DEDUP_WINDOW_SECONDS_DEFAULT = 0;
+    private static final long DEDUP_WINDOW_SECONDS_MIN = 5;
 
     @Transactional
     public ScanDtos.ScanResult scanEmpty(ScanDtos.ScanRequest req) {
@@ -62,7 +63,9 @@ public class ScanService {
         req.operator = OperatorResolver.currentOperator();
         req.deviceNo = (req.deviceNo == null || req.deviceNo.isBlank()) ? "UNKNOWN" : req.deviceNo.trim();
         String requestKey = firstNonBlank(req.idempotencyKey, RequestContext.getTraceId());
-        String requestHash = RequestDigest.sha256(rawScanCode, req.operator, req.deviceNo, req.action, RequestDigest.valueOf(req.requestQty), firstNonBlank(req.requestUnit, "个"), RequestDigest.valueOf(req.allowRepeat));
+        String requestHash = RequestDigest.sha256(rawScanCode, req.stationCode, req.usageType, req.operator,
+                req.deviceNo, req.action, RequestDigest.valueOf(req.requestQty),
+                firstNonBlank(req.requestUnit, "个"), RequestDigest.valueOf(req.allowRepeat));
         try {
             idempotencyService.begin(requestKey, "SCAN_EMPTY", rawScanCode, requestHash);
             ScanDtos.ScanRequest finalReq = req;
@@ -466,29 +469,37 @@ public class ScanService {
         boolean spare = "SPARE".equalsIgnoreCase(firstNonBlank(req.usageType, "")) || "URGENT".equalsIgnoreCase(firstNonBlank(req.action, ""));
 
         // 工位二维码 = 物料号 + 工位 + 使用/备用。
-        // 物料号 → 查料号映射核对物料、取仓库代号；工位号不参与映射，直接透传到仓库标签的发送工位地址；使用→正常、备用→紧急。
-        MaterialMappingEntity mapping = chooseMapping(materialCode, stationCode, spare);
+        // 先按“物料号 + 总装地址”锁定当前工位的候选映射，再独立轮换仓库代号；
+        // 使用/备用只决定任务的正常/紧急业务含义，不再固定某一个仓库代号。
+        List<MaterialMappingEntity> candidates = resolveMappingCandidates(materialCode, stationCode, true);
+        WarehouseCodeRotationService.Selection rotation = warehouseCodeRotationService.begin(
+                candidates, materialCode, stationCode);
+        MaterialMappingEntity mapping = rotation.selectedMapping();
         Optional<StationMaterialEntity> station = resolveStation(materialCode, stationCode);
 
         requireMappingScope(mapping);
-        List<ReplenishmentTaskEntity> existing = taskRepository.findByFactoryAndDeliveryAreaAndWarehouseCodeAndStatusIn(
-                mapping.getFactory().trim(), mapping.getDeliveryArea().trim(), mapping.getWarehouseCode(), blockingStatuses());
-        // 时间窗去重：只拦最近 N 分钟内创建的同仓库代号任务（挡住手抖/设备重发）；
-        // 超过时间窗的旧任务视为“上一轮用料”，同一个盒子再次用空可正常生成新任务。
-        long windowMinutes = dedupWindowMinutes();
-        LocalDateTime windowStart = LocalDateTime.now().minusMinutes(windowMinutes);
-        List<ReplenishmentTaskEntity> recent = existing.stream()
-                .filter(t -> t.getCreatedAt() != null && t.getCreatedAt().isAfter(windowStart))
-                .toList();
-        if (!recent.isEmpty() && !Boolean.TRUE.equals(req.allowRepeat)) {
-            ReplenishmentTaskEntity old = latest(recent);
-            auditService.scan(materialCode, null, "MATERIAL_PULL_DUPLICATE", true, "仓库代号" + mapping.getWarehouseCode() + "在" + windowMinutes + "分钟内已有补货任务，拦截重复：" + old.getTaskNo(), req.operator, req.deviceNo, firstNonBlank(old.getSendStationAddress(), old.getDeliveryAddress(), old.getStationCode()), materialCode, old.getFactory(), old.getDeliveryArea());
-            return duplicateMaterialResult(old, materialCode, "该仓库代号在" + windowMinutes + "分钟内已生成补货任务，系统已阻止重复申请：" + old.getTaskNo() + "（如确需再次申请，请使用强制申请）");
+        long windowSeconds = dedupWindowSeconds();
+        if (windowSeconds > 0 && !Boolean.TRUE.equals(req.allowRepeat)) {
+            List<ReplenishmentTaskEntity> existing = taskRepository.findByFactoryAndDeliveryAreaAndWarehouseCodeAndStatusIn(
+                    mapping.getFactory().trim(), mapping.getDeliveryArea().trim(), mapping.getWarehouseCode(), blockingStatuses());
+            LocalDateTime windowStart = LocalDateTime.now().minusSeconds(windowSeconds);
+            List<ReplenishmentTaskEntity> recent = existing.stream()
+                    .filter(t -> t.getCreatedAt() != null && t.getCreatedAt().isAfter(windowStart))
+                    .toList();
+            if (!recent.isEmpty()) {
+                ReplenishmentTaskEntity old = latest(recent);
+                String windowText = durationText(windowSeconds);
+                auditService.scan(materialCode, null, "MATERIAL_PULL_DUPLICATE", true, "仓库代号" + mapping.getWarehouseCode() + "在" + windowText + "内已有补货任务，拦截重复：" + old.getTaskNo(), req.operator, req.deviceNo, firstNonBlank(old.getSendStationAddress(), old.getDeliveryAddress(), old.getStationCode()), materialCode, old.getFactory(), old.getDeliveryArea());
+                return duplicateMaterialResult(old, materialCode, "该仓库代号在" + windowText + "内已生成补货任务，系统已阻止重复申请：" + old.getTaskNo() + "（如确需再次申请，请使用强制申请）");
+            }
         }
 
         ReplenishmentTaskEntity task = createTaskFromMapping(req, mapping, station.orElse(null), stationCode, spare);
         barcodeVariantAssignmentService.assignIfNeeded(task);
-        taskRepository.save(task);
+        // 先 flush 任务，确保标签数据可持久化；随后在同一事务内推进轮换状态。
+        // 任意后续异常都会使任务和轮换状态一起回滚。
+        taskRepository.saveAndFlush(task);
+        warehouseCodeRotationService.markTaskSaved(rotation, task.getTaskNo());
         auditService.scan(materialCode, null, spare ? "MATERIAL_PULL_URGENT" : "MATERIAL_PULL", true, "现场扫码成功，生成" + (spare ? "紧急" : "正常") + "补货任务：" + task.getTaskNo() + "，仓库代号=" + task.getWarehouseCode(), req.operator, req.deviceNo, task.getSendStationAddress(), task.getMaterialCode(), task.getFactory(), task.getDeliveryArea());
         auditService.task(task.getTaskNo(), spare ? "CREATE_BY_MATERIAL_URGENT" : "CREATE_BY_MATERIAL", null, task.getStatus().name(), req.operator, "由工位二维码(物料号+工位+" + (spare ? "备用" : "使用") + ")生成");
         pushService.publish("tasks", task);
@@ -522,16 +533,22 @@ public class ScanService {
     }
 
     /**
-     * 双条件匹配：选仓库代号需同时满足
-     *   条件1：二维码料号 = Excel(料号映射)中的物料号(lineMaterialCode)。
-     *   条件2：二维码发送工位地址 = Excel(料号映射)中的总装地址(deliveryAddress)。
-     * 两个条件都满足才算匹配成功；之后再按用途(使用/备用→NORMAL/URGENT)在结果中择一。
-     * 兼容二维码只有物料号、未扫出工位地址的情况：此时退回仅条件1匹配。
+     * 只读预览下一仓库代号。使用/备用不参与仓库代号选择，只保留参数以兼容原调用点。
      */
     MaterialMappingEntity chooseMapping(String materialCode, String stationAddress, boolean spare) {
-        String deliveryType = spare ? "URGENT" : "NORMAL";
-        // 条件1：物料号匹配，取该物料的全部映射候选。
-        List<MaterialMappingEntity> candidates = mappingRepository.findByLineMaterialCodeAndEnabledTrueOrderByMappingOrderAscIdAsc(materialCode);
+        List<MaterialMappingEntity> candidates = resolveMappingCandidates(materialCode, stationAddress, false);
+        return warehouseCodeRotationService.peek(candidates, materialCode, stationAddress);
+    }
+
+    /**
+     * 双条件匹配候选映射：二维码料号必须匹配 lineMaterialCode，二维码工位必须匹配 deliveryAddress。
+     * 正式建单时锁定该物料的全部启用映射，作为首次状态行并发创建时的数据库级互斥锚点。
+     */
+    private List<MaterialMappingEntity> resolveMappingCandidates(String materialCode, String stationAddress,
+                                                                  boolean forRotationUpdate) {
+        List<MaterialMappingEntity> candidates = forRotationUpdate
+                ? mappingRepository.findByLineMaterialCodeForRotationUpdate(materialCode)
+                : mappingRepository.findByLineMaterialCodeAndEnabledTrueOrderByMappingOrderAscIdAsc(materialCode);
         if (candidates.isEmpty()) throw new BusinessException(ErrorCode.NOT_FOUND, "未找到物料号对应的料号映射：" + materialCode + "，请在基础数据→料号映射维护该物料的仓库代号");
 
         // 条件2：发送工位地址 = Excel 总装地址(deliveryAddress)。
@@ -574,20 +591,13 @@ public class ScanService {
             }
         }
 
-        // 两个条件已满足，再按用途择一：优先取用途匹配的记录。
-        List<MaterialMappingEntity> typed = candidates.stream()
-                .filter(m -> deliveryType.equalsIgnoreCase(m.getDeliveryType()))
-                .toList();
-        if (typed.size() == 1) return typed.get(0);
-        if (typed.size() > 1) {
+        List<MappingScope> scopes = candidates.stream().map(this::mappingScope).distinct().toList();
+        if (scopes.size() != 1) {
             throw new BusinessException(ErrorCode.DATA_DIRTY,
                     "物料号 " + materialCode + "、工位 " + firstNonBlank(stationAddress, "未提供")
-                            + "、用途 " + deliveryType + " 对应多条料号映射，无法唯一确定归属，已拒绝建单");
+                            + " 对应多个工厂或配送区域，无法唯一确定轮换范围，已拒绝建单");
         }
-        if (candidates.size() == 1) return candidates.get(0);
-        throw new BusinessException(ErrorCode.DATA_DIRTY,
-                "物料号 " + materialCode + "、工位 " + firstNonBlank(stationAddress, "未提供")
-                        + " 对应多条料号映射且没有唯一的 " + deliveryType + " 用途记录，已拒绝建单");
+        return candidates;
     }
 
     private Optional<StationMaterialEntity> resolveStation(String materialCode, String stationCode) {
@@ -613,6 +623,7 @@ public class ScanService {
         task.setDeliveryMode(spare ? "URGENT" : "NORMAL");
         task.setMaterialCode(mapping.getLineMaterialCode());
         task.setMaterialName(mapping.getLineMaterialCode());
+        task.setMappingDescription(mapping.getDescription());
         task.setWarehouseMaterialCode(firstNonBlank(mapping.getWarehouseMaterialCode(), mapping.getWarehouseCode()));
         task.setRequestQty(resolveRequestQty(req, mapping.getQuantity()));
         task.setRequestUnit(resolveRequestUnit(req));
@@ -963,27 +974,35 @@ public class ScanService {
         return activeStatuses();
     }
 
-    /**
-     * 读取去重时间窗（分钟）。优先读 sys_config 的 task.dedup.window-minutes，
-     * 每次扫码实时读取，后台改完立即生效；缺失或非法时回退默认值 3 分钟。
-     */
-    private long dedupWindowMinutes() {
+    /** 单一配置按秒读取：0=关闭，正数最小 5 秒；缺失或格式错误时默认关闭。 */
+    private long dedupWindowSeconds() {
         try {
-            return configRepository.findByConfigKey(DEDUP_WINDOW_KEY)
+            return configRepository.findByConfigKey(DEDUP_WINDOW_SECONDS_KEY)
                     .map(SystemConfigEntity::getConfigValue)
-                    .filter(v -> v != null && !v.isBlank())
-                    .map(v -> {
-                        try {
-                            long minutes = Long.parseLong(v.trim());
-                            return minutes < 0 ? DEDUP_WINDOW_DEFAULT : minutes;
-                        } catch (NumberFormatException e) {
-                            return DEDUP_WINDOW_DEFAULT;
-                        }
-                    })
-                    .orElse(DEDUP_WINDOW_DEFAULT);
+                    .map(v -> parseDedupSeconds(v, DEDUP_WINDOW_SECONDS_DEFAULT))
+                    .orElse(DEDUP_WINDOW_SECONDS_DEFAULT);
         } catch (Exception e) {
-            return DEDUP_WINDOW_DEFAULT;
+            return DEDUP_WINDOW_SECONDS_DEFAULT;
         }
+    }
+
+    private long parseDedupSeconds(String value, long fallback) {
+        try {
+            long seconds = Long.parseLong(value == null ? "" : value.trim());
+            if (seconds <= 0) return 0;
+            return Math.max(DEDUP_WINDOW_SECONDS_MIN, seconds);
+        } catch (NumberFormatException e) {
+            return fallback;
+        }
+    }
+
+    private String durationText(long seconds) {
+        long safe = Math.max(0, seconds);
+        long minutes = safe / 60;
+        long remain = safe % 60;
+        if (minutes == 0) return remain + "秒";
+        if (remain == 0) return minutes + "分钟";
+        return minutes + "分" + remain + "秒";
     }
 
     private BigDecimal resolveRequestQty(ScanDtos.ScanRequest req, BigDecimal defaultQty) {

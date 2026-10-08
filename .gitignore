@@ -1,8 +1,10 @@
 # ===== 构建产物 / 依赖 =====
 /backend/target/
 /backend/data/
+/backend/jar-backups/
 /frontend/node_modules/
 /frontend/dist/
+/frontend/.dist-*/
 .m2-repo/
 /androidAPP/**/build/
 /androidAPP/**/.gradle/
@@ -10,34 +12,61 @@
 *.apk
 /print-agent/bin/
 /print-agent/obj/
+/external-scan-relay/win-relay/bin/
+/external-scan-relay/win-relay/obj/
 __pycache__/
 *.pyc
 
 # 临时/无关文件
 1.txt
+*.bak
+*.orig
+*.rej
 /80端口访问技术说明.md
+/image.png
+/external-scan-relay/win-relay-source-*.zip
 
 # ===== 日志 / 运行态 =====
 *.log
 /backend/logs/
 /logs/
 /.run/
+/.runtime/
 
 # ===== 敏感信息（含真实密码/密钥，切勿提交）=====
 .env
 deploy/scripts/material-pull.env
-凭证清单-请勿上传.md
 deploy/certs/
 dbtool/dbtool.env
 dbtool/dbtool.log
 dbtool/dbtool.pid
 token
+/aliyun-api.tar.gz
 /data/
 /apk-updates/
 /新更新/
 /WX_PULL/
+/upload/
+/db-backups/
+/external-scan-relay/cloud-api/api.env
+/external-scan-relay/linux-client/relay.env
+/external-scan-relay/linux-worker/worker.env
+/androidAPP/WX_USE/project.private.config.json
 
-# ===== 编辑器 / 系统 =====
+# ===== 内部文档（仅本地保留，勿上传）=====
+/凭证清单-请勿上传.md
+/项目文档.md
+/修复与发布记录.md
+/操作指令.md
+/修改指令.md
+/2026-10-08_本次更新清单.md
+/潜在问题清单.md
+/需求变动更新/
+
+# ===== 编辑器 / 系统 / 本地工具 =====
 .DS_Store
 .idea/
 .vscode/
+.agents/
+.codex/
+.claude/

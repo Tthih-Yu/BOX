@@ -4,6 +4,7 @@ import com.example.materialpull.entity.MaterialMappingEntity;
 import com.example.materialpull.repository.*;
 import com.example.materialpull.service.BasicDataService;
 import com.example.materialpull.service.LogExportService;
+import com.example.materialpull.service.MappingQueryService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -32,13 +33,14 @@ class BasicDataControllerDataScopeTest {
     @Mock BasicDataService service;
     @Mock LogExportService logExportService;
     @Mock com.example.materialpull.service.DataScopeService dataScopeService;
+    @Mock MappingQueryService mappingQueryService;
     MockMvc mvc;
 
     @BeforeEach
     void setUp() {
         BasicDataController controller = new BasicDataController(materialRepository, mappingRepository,
                 stationMaterialRepository, boxRepository, inventoryRepository, configRepository,
-                service, logExportService, dataScopeService);
+                service, logExportService, dataScopeService, mappingQueryService);
         mvc = MockMvcBuilders.standaloneSetup(controller).build();
     }
 
@@ -58,6 +60,27 @@ class BasicDataControllerDataScopeTest {
                 .andExpect(jsonPath("$.data.items[0].deliveryArea").value("T26 Floor"));
 
         verify(service).mappings(eq("MAT"), any(PageRequest.class));
+        verifyNoInteractions(mappingRepository);
+    }
+
+    @Test
+    void columnFiltersUseScopedQueryAndOptionsService() throws Exception {
+        String filters = "{\"deliveryArea\":[\"1\",\"2\"]}";
+        when(mappingQueryService.page(eq(""), eq(filters), any(PageRequest.class)))
+                .thenReturn(new PageImpl<>(List.of()));
+        when(mappingQueryService.options("warehouseCode", "", filters, "WH"))
+                .thenReturn(List.of("WH-01"));
+
+        mvc.perform(get("/mappings").param("page", "0").param("size", "20").param("filters", filters))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.total").value(0));
+        mvc.perform(get("/mappings/filter-options").param("field", "warehouseCode")
+                        .param("filters", filters).param("search", "WH"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[0]").value("WH-01"));
+
+        verify(mappingQueryService).page(eq(""), eq(filters), any(PageRequest.class));
+        verify(mappingQueryService).options("warehouseCode", "", filters, "WH");
         verifyNoInteractions(mappingRepository);
     }
 

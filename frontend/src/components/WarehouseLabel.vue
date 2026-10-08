@@ -8,13 +8,13 @@
       <div class="wl-barcode" v-html="barcodeSvg"></div>
     </div>
     <div class="wl-mid">
-      <div class="wl-cell"><span>物料名称</span><b>{{ field('materialCode', 'materialName') }}</b></div>
+      <div class="wl-cell"><span>物料号</span><b>{{ field('materialCode', 'materialName') }}</b></div>
       <div class="wl-cell"><span>仓储地址</span><b>{{ field('warehouseAddress', 'warehouseLocation') }}</b></div>
       <div class="wl-cell"><span>货架工位地址</span><b class="small">{{ field('sendStationAddress', 'deliveryAddress', 'stationName', 'stationCode') }}</b></div>
     </div>
     <div class="wl-bottom">
-      <div class="wl-cell"><span>盒子大小</span><b>{{ field('boxSize') }}</b></div>
-      <div class="wl-cell"><span>数量</span><b>{{ field('requestQty') }}</b></div>
+      <div class="wl-cell"><span>盒子 / 数量</span><b class="wl-pack-value">{{ field('boxSize') }} | {{ field('requestQty', 'qty') }}</b></div>
+      <div class="wl-cell"><span>描述</span><b class="wl-description-value">{{ description || '-' }}</b></div>
       <div class="wl-cell"><span>配送区域</span><b class="small">{{ field('deliveryArea') }}</b></div>
       <div class="wl-cell"><span>任务号</span><b class="tiny">{{ field('taskNo') }}</b></div>
     </div>
@@ -25,6 +25,7 @@
 import { computed } from 'vue'
 
 const props = defineProps<{ row:any; barcodeSvg?:string }>()
+const description = computed(() => String(props.row?.mappingDescription || '').trim())
 const urgent = computed(() => {
   const mode = String(props.row?.deliveryMode || '').toUpperCase()
   const priority = String(props.row?.priority || '').toUpperCase()
@@ -59,6 +60,7 @@ function field(...keys:string[]){
 .warehouse-label .wl-cell b{font-size:22px;font-weight:800;word-break:break-all;line-height:1.1}
 .warehouse-label .wl-cell b.small{font-size:17px}
 .warehouse-label .wl-cell b.tiny{font-size:12px;letter-spacing:.2px}
+.warehouse-label .wl-cell b.wl-pack-value,.warehouse-label .wl-cell b.wl-description-value{font-size:18px}
 .warehouse-label-print-root{display:none}
 @media print{
   @page{size:80mm 50mm;margin:0}
@@ -81,6 +83,7 @@ function field(...keys:string[]){
   .warehouse-label .wl-cell b{font-size:3.6667mm!important}
   .warehouse-label .wl-cell b.small{font-size:2.8333mm!important}
   .warehouse-label .wl-cell b.tiny{font-size:2mm!important;letter-spacing:.0333mm!important}
+  .warehouse-label .wl-cell b.wl-pack-value,.warehouse-label .wl-cell b.wl-description-value{font-size:3mm!important}
 }
 
 </style>

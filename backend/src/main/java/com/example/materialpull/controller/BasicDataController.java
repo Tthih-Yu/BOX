@@ -8,6 +8,7 @@ import com.example.materialpull.repository.*;
 import com.example.materialpull.security.RequireRoles;
 import com.example.materialpull.service.BasicDataService;
 import com.example.materialpull.service.LogExportService;
+import com.example.materialpull.service.MappingQueryService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
@@ -34,13 +35,15 @@ public class BasicDataController {
     private final BasicDataService service;
     private final LogExportService logExportService;
     private final com.example.materialpull.service.DataScopeService dataScopeService;
+    private final MappingQueryService mappingQueryService;
 
     private static final List<String> MAPPING_EXPORT_COLUMNS = List.of(
-            "mappingOrder", "lineMaterialCode", "warehouseCode", "boxSize", "quantity",
-            "deliveryType", "warehouseLocation", "deliveryAddress", "remark", "deliveryArea", "warehouseMaterialCode", "singleUnitUsage", "factory");
+            "mappingOrder", "warehouseCode", "lineMaterialCode", "boxSize", "singleUnitUsage",
+            "warehouseLocation", "deliveryAddress", "description", "quantity", "deliveryType",
+            "remark", "deliveryArea", "warehouseMaterialCode", "factory");
     private static final List<String> MAPPING_EXPORT_HEADERS = List.of(
-            "序号", "物料号", "仓库代号", "盒子大小", "数量", "用途", "仓库位置",
-            "总装地址", "备注", "配送区域", "仓库料号", "单根用量", "工厂");
+            "序号", "仓库代号", "物料号", "盒子大小", "单根用量", "仓库位置",
+            "总装地址", "描述", "数量", "用途", "备注", "配送区域", "仓库料号", "工厂");
 
     @GetMapping("/materials")
     @RequireRoles({UserRole.PLANNER, UserRole.WAREHOUSE, UserRole.LINE, UserRole.VIEWER})
@@ -56,12 +59,26 @@ public class BasicDataController {
 
     @GetMapping("/mappings")
     @RequireRoles({UserRole.SUB_ADMIN, UserRole.PLANNER, UserRole.WAREHOUSE, UserRole.VIEWER})
-    public ApiResponse<?> mappings(@RequestParam(required = false) Integer page, @RequestParam(required = false) Integer size, @RequestParam(defaultValue = "") String keyword) {
-        if (page == null && size == null) return ApiResponse.ok(service.mappings());
+    public ApiResponse<?> mappings(@RequestParam(required = false) Integer page, @RequestParam(required = false) Integer size,
+                                   @RequestParam(defaultValue = "") String keyword,
+                                   @RequestParam(defaultValue = "") String filters) {
+        if (page == null && size == null && filters.isBlank()) return ApiResponse.ok(service.mappings());
         int safePage = Math.max(page == null ? 0 : page, 0);
         int safeSize = Math.min(Math.max(size == null ? 50 : size, 10), 200);
-        var result = service.mappings(keyword, PageRequest.of(safePage, safeSize));
+        var result = filters.isBlank()
+                ? service.mappings(keyword, PageRequest.of(safePage, safeSize))
+                : mappingQueryService.page(keyword, filters, PageRequest.of(safePage, safeSize,
+                    Sort.by("lineMaterialCode").and(Sort.by("mappingOrder")).and(Sort.by("id"))));
         return ApiResponse.ok(Map.of("items", result.getContent(), "total", result.getTotalElements()));
+    }
+
+    @GetMapping("/mappings/filter-options")
+    @RequireRoles({UserRole.SUB_ADMIN, UserRole.PLANNER, UserRole.WAREHOUSE, UserRole.VIEWER})
+    public ApiResponse<List<String>> mappingFilterOptions(@RequestParam String field,
+                                                           @RequestParam(defaultValue = "") String keyword,
+                                                           @RequestParam(defaultValue = "") String filters,
+                                                           @RequestParam(defaultValue = "") String search) {
+        return ApiResponse.ok(mappingQueryService.options(field, keyword, filters, search));
     }
 
     @PostMapping("/mappings")

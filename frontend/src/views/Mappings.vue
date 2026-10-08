@@ -7,13 +7,15 @@
     :columns="columns"
     :write-roles="ROLE_SETS.mappingManage"
     server-pagination
+    filterable
+    selectable
   >
-    <template #toolbar-extra="{ reload }">
+    <template #toolbar-extra="{ selectedIds, clearSelection, resetPage }">
       <ImportButton
         type="mappings"
         template-url="/import_templates/mappings.csv"
         :write-roles="ROLE_SETS.mappingManage"
-        @imported="reload"
+        @imported="reloadTable"
       />
       <ImportButton
         v-if="canWrite"
@@ -23,7 +25,7 @@
         :template-url="''"
         :write-roles="ROLE_SETS.mappingManage"
         :before-pick="confirmOverwrite"
-        @imported="reload"
+        @imported="reloadTable"
       />
       <el-button
         v-if="canWrite"
@@ -33,6 +35,14 @@
         style="margin-left:8px"
         @click="exportAll"
       >导出</el-button>
+      <el-button
+        v-if="canWrite"
+        type="danger"
+        plain
+        :disabled="!selectedIds.length"
+        style="margin-left:8px"
+        @click="deleteSelected(selectedIds, clearSelection, resetPage)"
+      >删除勾选的 {{ selectedIds.length }} 条</el-button>
       <el-dropdown
         v-if="canWrite"
         trigger="click"
@@ -40,7 +50,7 @@
         @command="onBatchDelete"
       >
         <el-button type="danger" :icon="Delete">
-          批量删除<el-icon class="el-icon--right"><ArrowDown /></el-icon>
+          按范围删除<el-icon class="el-icon--right"><ArrowDown /></el-icon>
         </el-button>
         <template #dropdown>
           <el-dropdown-menu>
@@ -88,7 +98,8 @@ const canWrite = computed(() => hasAnyRole(ROLE_SETS.mappingManage as any))
 const isSubAdmin = computed(() => currentRole() === 'SUB_ADMIN')
 
 function reloadTable() {
-  tableRef.value?.load?.()
+  tableRef.value?.clearSelection?.()
+  tableRef.value?.resetPage?.()
 }
 
 async function exportAll() {
@@ -150,22 +161,33 @@ async function confirmAreaDelete() {
   reloadTable()
 }
 
+async function deleteSelected(ids: number[], clearSelection: () => void, resetPage: () => void) {
+  if (!ids.length) return
+  try {
+    await doubleCountdownConfirm('删除勾选数据', `将删除勾选的 ${ids.length} 条料号映射`)
+  } catch { return }
+  const res: any = await del('/mappings', { ids })
+  ElMessage.success(`已删除 ${res?.deleted ?? 0} 条数据`)
+  clearSelection()
+  resetPage()
+}
+
 const columns = [
   { prop:'mappingOrder', label:'序号', type:'number', width:90 },
-  { prop:'lineMaterialCode', label:'物料号', width:160 },
-  { prop:'factory', label:'工厂', options:[{label:'弋江',value:'弋江'},{label:'三山',value:'三山'}], width:120 },
   { prop:'warehouseCode', label:'仓库代号', width:160 },
+  { prop:'lineMaterialCode', label:'物料号', width:160 },
   { prop:'boxSize', label:'盒子大小', width:120 },
-  { prop:'quantity', label:'数量', type:'number', width:110 },
   { prop:'singleUnitUsage', label:'单根用量', type:'number', width:110 },
-  { prop:'deliveryType', label:'用途', options:[{label:'使用（正常）',value:'NORMAL'},{label:'备用（紧急）',value:'URGENT'}], width:120 },
   { prop:'warehouseLocation', label:'仓库位置', width:160 },
   { prop:'deliveryAddress', label:'总装地址', width:200 },
+  { prop:'description', label:'描述', width:110 },
+  { prop:'quantity', label:'数量', type:'number', width:110 },
+  { prop:'deliveryType', label:'用途', options:[{label:'使用（正常）',value:'NORMAL'},{label:'备用（紧急）',value:'URGENT'}], width:120 },
+  { prop:'remark', label:'备注', width:160 },
   { prop:'deliveryArea', label:'配送区域', width:110 },
+  { prop:'warehouseMaterialCode', label:'仓库料号', width:160, readonly:true },
+  { prop:'factory', label:'工厂', options:[{label:'弋江',value:'弋江'},{label:'三山',value:'三山'}], width:120 },
   { prop:'id', label:'ID', readonly:true, hiddenInTable:true },
   { prop:'enabled', label:'启用', type:'boolean', hiddenInTable:true },
-  { prop:'warehouseMaterialCode', label:'兼容仓库料号', hiddenInTable:true },
-  { prop:'description', label:'描述', hiddenInTable:true },
-  { prop:'remark', label:'备注', hiddenInTable:true }
 ]
 </script>

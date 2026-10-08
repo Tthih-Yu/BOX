@@ -47,6 +47,8 @@ class ScanServiceDataScopeTest {
     @Mock SystemConfigRepository configRepository;
     @Mock MaterialRepository materialRepository;
     @Mock BarcodeVariantAssignmentService barcodeVariantAssignmentService;
+    @Mock WarehouseCodeRotationService warehouseCodeRotationService;
+    @Mock WarehouseCodeRotationService.Selection rotationSelection;
     @Spy DataScopeService dataScopeService = new DataScopeService();
 
     @InjectMocks ScanService service;
@@ -101,18 +103,19 @@ class ScanServiceDataScopeTest {
     }
 
     @Test
-    void chooseMappingRejectsMultipleCandidatesForSameUsage() {
+    void chooseMappingDoesNotBindWarehouseCodeToUsageType() {
         MaterialMappingEntity first = mapping(1L, "WH-1", "MAT-X", "弋江", "T26 Floor", "NORMAL");
         MaterialMappingEntity second = mapping(2L, "WH-2", "MAT-X", "弋江", "T26 Floor", "NORMAL");
         first.setDeliveryAddress("工位-A");
         second.setDeliveryAddress("工位-A");
         when(mappingRepository.findByLineMaterialCodeAndEnabledTrueOrderByMappingOrderAscIdAsc("MAT-X"))
                 .thenReturn(List.of(first, second));
+        when(warehouseCodeRotationService.peek(List.of(first, second), "MAT-X", "工位-A"))
+                .thenReturn(second);
 
-        BusinessException exception = assertThrows(BusinessException.class,
-                () -> service.chooseMapping("MAT-X", "工位-A", false));
+        MaterialMappingEntity selected = service.chooseMapping("MAT-X", "工位-A", false);
 
-        assertEquals(ErrorCode.DATA_DIRTY, exception.getErrorCode());
+        assertEquals("WH-2", selected.getWarehouseCode());
     }
 
     @Test
@@ -139,6 +142,7 @@ class ScanServiceDataScopeTest {
         mapping.setDeliveryAddress("工位-A");
         mapping.setWarehouseLocation("库位-1");
         mapping.setWarehouseMaterialCode("WM-1");
+        mapping.setDescription("正常胶带");
         mapping.setQuantity(java.math.BigDecimal.TEN);
         when(labelResolverService.normalize("MAT-1,工位-A,使用")).thenReturn("MAT-1,工位-A,使用");
         when(labelResolverService.resolveForUpdate("MAT-1"))
@@ -146,15 +150,16 @@ class ScanServiceDataScopeTest {
         when(guard.notBlank("MAT-1", "物料号")).thenReturn("MAT-1");
         when(guard.positive(java.math.BigDecimal.TEN, "本次申请数量"))
                 .thenReturn(java.math.BigDecimal.TEN);
-        when(mappingRepository.findByLineMaterialCodeAndEnabledTrueOrderByMappingOrderAscIdAsc("MAT-1"))
+        when(mappingRepository.findByLineMaterialCodeForRotationUpdate("MAT-1"))
                 .thenReturn(List.of(mapping));
+        when(warehouseCodeRotationService.begin(List.of(mapping), "MAT-1", "工位-A"))
+                .thenReturn(rotationSelection);
+        when(rotationSelection.selectedMapping()).thenReturn(mapping);
         when(stationMaterialRepository.findByStationCodeAndMaterialCodeAndEnabledTrue("工位-A", "MAT-1"))
                 .thenReturn(Optional.empty());
         when(stationMaterialRepository.findFirstByMaterialCodeAndEnabledTrue("MAT-1"))
                 .thenReturn(Optional.empty());
-        when(taskRepository.findByFactoryAndDeliveryAreaAndWarehouseCodeAndStatusIn(
-                eq("弋江"), eq("T26 Floor"), eq("WH-1"), anyList())).thenReturn(List.of());
-        when(configRepository.findByConfigKey("task.dedup.window-minutes")).thenReturn(Optional.empty());
+        when(configRepository.findByConfigKey("task.dedup.window-seconds")).thenReturn(Optional.empty());
         when(lockService.execute(anyString(), any())).thenAnswer(invocation ->
                 ((Supplier<?>) invocation.getArgument(1)).get());
         ScanDtos.ScanRequest request = new ScanDtos.ScanRequest();
@@ -168,9 +173,11 @@ class ScanServiceDataScopeTest {
         assertEquals("工位-A", result.sendStationAddress);
         var taskCaptor = org.mockito.ArgumentCaptor.forClass(
                 com.example.materialpull.entity.ReplenishmentTaskEntity.class);
-        verify(taskRepository).save(taskCaptor.capture());
+        verify(taskRepository).saveAndFlush(taskCaptor.capture());
+        verify(warehouseCodeRotationService).markTaskSaved(rotationSelection, result.taskNo);
         assertEquals("弋江", taskCaptor.getValue().getFactory());
         assertEquals("T26 Floor", taskCaptor.getValue().getDeliveryArea());
+        assertEquals("正常胶带", taskCaptor.getValue().getMappingDescription());
     }
 
     private MaterialMappingEntity mapping(Long id, String warehouseCode, String materialCode,

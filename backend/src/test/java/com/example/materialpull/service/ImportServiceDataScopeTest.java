@@ -64,6 +64,26 @@ class ImportServiceDataScopeTest {
         assertEquals(ImportStatus.SUCCESS, batch.getStatus());
     }
 
+    @Test
+    void latestMappingTemplateOrderImportsDescriptionByHeader() throws Exception {
+        MockMultipartFile file = csv("""
+                序号,仓库代号,物料号,盒子大小,单根用量,仓库位置,总装地址,描述,数量,用途,备注,配送区域,仓库料号,工厂
+                1,WH-01,MAT-01,G,2,A-1,工位-A,正常胶带,10,NORMAL,示例,1,WH-01,弋江
+                """);
+
+        ImportBatchEntity batch = service.importExcel("mappings", file, "普通管理员");
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<MaterialMappingEntity>> rows = ArgumentCaptor.forClass(List.class);
+        verify(basicDataService).upsertMappingsByWarehouseCode(rows.capture());
+        MaterialMappingEntity mapping = rows.getValue().get(0);
+        assertEquals("WH-01", mapping.getWarehouseCode());
+        assertEquals("MAT-01", mapping.getLineMaterialCode());
+        assertEquals("正常胶带", mapping.getDescription());
+        assertEquals("1", mapping.getDeliveryArea());
+        assertEquals(ImportStatus.SUCCESS, batch.getStatus());
+    }
+
     @ParameterizedTest
     @ValueSource(strings = {"xlsx", "xlsm", "xls"})
     void excelFormatsUseTheSameScopedMappingWritePath(String extension) throws Exception {

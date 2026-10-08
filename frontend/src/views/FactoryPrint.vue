@@ -51,6 +51,30 @@
           <button v-for="area in availableAreas" :key="area.key" type="button" class="scope-chip area-chip" :class="{ active: selectedAreaKey === area.key, 'has-tasks': area.key !== ALL_AREAS && area.count > 0 }" @click="selectedAreaKey = area.key">{{ area.label }}<template v-if="area.key !== ALL_AREAS"> {{ area.count }}</template></button>
         </div>
       </div>
+      <section class="area-batch-print" aria-label="区域批量打印">
+        <div class="area-batch-head">
+          <div>
+            <h4>区域批量打印</h4>
+            <p>勾选要打印的配送区域，可同时选择多个；只打印所选区域内的待打印标签。</p>
+          </div>
+          <el-tag type="info" effect="plain">工厂：{{ selectedFactoryLabel }}</el-tag>
+        </div>
+        <el-checkbox-group v-model="selectedPrintAreas" class="area-batch-options">
+          <el-checkbox v-for="area in printAreaOptions" :key="area.key" :label="area.key" border>
+            <b>{{ area.key }}</b><span class="area-label-count">{{ area.count }} 张</span>
+          </el-checkbox>
+        </el-checkbox-group>
+        <p v-if="!printAreaOptions.length" class="area-batch-empty">当前工厂暂无匹配的待打印标签。</p>
+        <div class="area-batch-footer">
+          <span class="area-batch-count">已选 {{ selectedPrintAreas.length }} 个区域，共 {{ selectedAreaRows.length }} 张标签</span>
+          <div class="area-batch-actions">
+            <el-button link :disabled="!selectedPrintAreas.length || batchPrinting || batchSubmitting" @click="selectedPrintAreas = []">清空选择</el-button>
+            <el-button type="primary" :disabled="!selectedAreaRows.length || batchSubmitting" :loading="batchPrinting" @click="printRows(selectedAreaRows, '已调起所选区域打印')">打印所选区域</el-button>
+            <el-input v-model="printerName" class="area-batch-printer" placeholder="打印机名称（提交打印时填写）" />
+            <el-button type="success" plain :disabled="!selectedAreaRows.length || !printerName.trim() || batchPrinting" :loading="batchSubmitting" @click="submitRows(selectedAreaRows, '已提交所选区域')">提交所选区域</el-button>
+          </div>
+        </div>
+      </section>
       <el-alert v-if="!currentRows.length" type="info" :closable="false" :title="rawRows.length ? '当前工厂和区域没有匹配的待打印标签' : '暂无待打印标签'" style="margin-bottom:10px" />
       <section v-else class="current-scope">
           <div class="station-title">
@@ -88,8 +112,8 @@
               <div class="thumb-cell"><span>工位</span><b>{{ stationName(row) }}</b></div>
             </div>
             <div class="thumb-bottom">
-              <div class="thumb-cell"><span>盒子</span><b>{{ previewField(row, 'boxSize') }}</b></div>
-              <div class="thumb-cell"><span>数量</span><b>{{ previewField(row, 'requestQty') }}</b></div>
+              <div class="thumb-cell"><span>盒子 / 数量</span><b>{{ previewField(row, 'boxSize') }} | {{ previewField(row, 'requestQty') }}</b></div>
+              <div class="thumb-cell"><span>描述</span><b>{{ previewField(row, 'mappingDescription') }}</b></div>
               <div class="thumb-cell"><span>配送区域</span><b>{{ previewField(row, 'deliveryArea') }}</b></div>
               <div class="thumb-cell"><span>任务</span><b class="mini">{{ row.taskNo }}</b></div>
             </div>
@@ -247,6 +271,7 @@ type SortMode = 'pinyin'|'alnum'|'timeAsc'|'timeDesc'|'warehouseAsc'|'warehouseD
 const ALL_AREAS = '__all__'
 const selectedFactoryKey = ref<string>('')
 const selectedAreaKey = ref<string>(ALL_AREAS)
+const selectedPrintAreas = ref<string[]>([])
 // 仓库员恢复工厂/配送区域筛选；后端仍按账号范围过滤，按钮不会扩大权限。
 // ADMIN/SYSTEM 即使被维护了范围，仍保留完整入口。
 const showScopeSwitcher = computed(() => {
@@ -351,6 +376,7 @@ function recordLabelRow(record:any){
     warehouseLocation: snapshot.from || snapshot.warehouseAddress,
     sendStationAddress: snapshot.sendStationAddress || snapshot.to,
     deliveryAddress: snapshot.to || snapshot.sendStationAddress,
+    mappingDescription: snapshot.mappingDescription || record?.mappingDescription,
     labelUsageType: snapshot.labelUsageType || snapshot.usageType
   }
 }
@@ -472,7 +498,7 @@ async function printRows(inputRows:any[], successPrefix:string){
   try {
     const svgMap = await renderBarcodes(rows)
     await printLabelsInBrowser(rows, svgMap)
-    ElMessage.success(`： 张`)
+    ElMessage.success(`${successPrefix}：${rows.length} 张`)
     for (const row of rows) {
       try { await post("/print-jobs", { taskNo:row.taskNo, printerName:(printerName.value.trim() || "浏览器打印"), printType:"WAREHOUSE_BARCODE_LABEL", printChannel:"BROWSER" }) } catch {}
     }
@@ -551,6 +577,24 @@ const availableFactories = computed(() => {
 const factoryGroups = computed(() => availableFactories.value.map(f => { const items=filteredRows.value.filter(r=>factoryKey(r)===f.key); return {...f,rows:items,groups:groupsFor(items,f.key)} }))
 const selectedFactoryLabel = computed(() => availableFactories.value.find(f=>f.key===selectedFactoryKey.value)?.label || '未选择工厂')
 const factoryRows = computed(() => filteredRows.value.filter(r=>factoryKey(r)===selectedFactoryKey.value))
+const printAreaOptions = computed(() => {
+  const counts = new Map<string, number>()
+  for (const row of factoryRows.value) {
+    const area = String(row.deliveryArea || '').trim() || '未分类'
+    counts.set(area, (counts.get(area) || 0) + 1)
+  }
+  return Array.from(counts.entries()).sort(([a],[b]) => a.localeCompare(b, 'zh-Hans-CN', {numeric:true}))
+    .map(([key,count]) => ({key,count}))
+})
+const selectedAreaRows = computed(() => {
+  const areas = new Set(selectedPrintAreas.value)
+  return factoryRows.value.filter(row => areas.has(String(row.deliveryArea || '').trim() || '未分类'))
+})
+watch(selectedFactoryKey, () => { selectedPrintAreas.value = [] })
+watch(printAreaOptions, options => {
+  const available = new Set(options.map(option => option.key))
+  selectedPrintAreas.value = selectedPrintAreas.value.filter(area => available.has(area))
+})
 const availableAreas = computed(() => {
   const counts = new Map<string,number>()
   for (const row of factoryRows.value) { const area=groupCategory(row); counts.set(area,(counts.get(area)||0)+1) }

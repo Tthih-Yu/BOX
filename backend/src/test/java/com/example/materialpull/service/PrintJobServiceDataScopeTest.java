@@ -24,6 +24,7 @@ import org.springframework.data.domain.Pageable;
 
 import java.util.List;
 import java.util.Optional;
+import java.math.BigDecimal;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
@@ -90,6 +91,9 @@ class PrintJobServiceDataScopeTest {
     @Test
     void newJobSnapshotsFactoryAndDeliveryAreaFromTask() {
         ReplenishmentTaskEntity task = task("TASK-01", "弋江", "T26 Floor");
+        task.setMappingDescription("正常胶带");
+        task.setBoxSize("G");
+        task.setRequestQty(new BigDecimal("380.000"));
         when(properties.getDefaultPrintType()).thenReturn("WAREHOUSE_BARCODE_LABEL");
         when(properties.getDefaultPrinterName()).thenReturn("Printer-01");
         when(properties.isPrintPullMode()).thenReturn(true);
@@ -99,6 +103,46 @@ class PrintJobServiceDataScopeTest {
 
         assertEquals("弋江", job.getFactory());
         assertEquals("T26 Floor", job.getDeliveryArea());
+        assertTrue(job.getPayload().contains("\"mappingDescription\":\"正常胶带\""));
+        assertTrue(job.getZplContent().contains("正常胶带"));
+        String zpl = job.getZplContent();
+        assertTrue(zpl.contains("^FO20,276^A0N,22,22^FD盒子 / 数量^FS"));
+        assertTrue(zpl.contains("^FO20,306^A0N,24,24^FB140,2,3,L,0^FDG | 380^FS"));
+        assertTrue(zpl.contains("^FO176,276^A0N,22,22^FD描述^FS"));
+        assertTrue(zpl.contains("^FO176,306^A0N,26,26^FB140,2,3,L,0^FD正常胶带^FS"));
+        assertEquals(1, zpl.split("正常胶带", -1).length - 1);
+    }
+
+    @Test
+    void dedicatedDescriptionCellSupportsFiveChineseCharactersAndCombinedChineseBoxSize() {
+        ReplenishmentTaskEntity task = task("TASK-DESC-5", "弋江", "T26 Floor");
+        task.setMappingDescription("备用密封罐");
+        task.setBoxSize("密封罐");
+        task.setRequestQty(new BigDecimal("4000"));
+        when(properties.getDefaultPrintType()).thenReturn("WAREHOUSE_BARCODE_LABEL");
+        when(properties.getDefaultPrinterName()).thenReturn("Printer-01");
+        when(properties.isPrintPullMode()).thenReturn(true);
+        when(printJobRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+
+        PrintJobEntity job = service.createForTask(task, "tester");
+        assertTrue(job.getZplContent().contains("^FB140,2,3,L,0^FD密封罐 | 4000^FS"));
+        assertTrue(job.getZplContent().contains("^FO176,306^A0N,26,26^FB140,2,3,L,0^FD备用密封罐^FS"));
+    }
+
+    @Test
+    void emptyDescriptionKeepsItsCellAndZeroQuantityIsPrinted() {
+        ReplenishmentTaskEntity task = task("TASK-EMPTY-DESC", "弋江", "T26 Floor");
+        task.setBoxSize("G");
+        task.setRequestQty(BigDecimal.ZERO);
+        when(properties.getDefaultPrintType()).thenReturn("WAREHOUSE_BARCODE_LABEL");
+        when(properties.getDefaultPrinterName()).thenReturn("Printer-01");
+        when(properties.isPrintPullMode()).thenReturn(true);
+        when(printJobRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+
+        PrintJobEntity job = service.createForTask(task, "tester");
+        assertTrue(job.getZplContent().contains("^FDG | 0^FS"));
+        assertTrue(job.getZplContent().contains("^FO176,276^A0N,22,22^FD描述^FS"));
+        assertTrue(job.getZplContent().contains("^FO176,306^A0N,26,26^FB140,2,3,L,0^FD-^FS"));
     }
 
     @Test

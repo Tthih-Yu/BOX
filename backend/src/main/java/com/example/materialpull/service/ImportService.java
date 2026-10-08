@@ -55,13 +55,14 @@ public class ImportService {
     private static final int WRITE_BATCH_SIZE = 500;
 
     /**
-     * 各导入类型的规范列顺序（与下载模板表头一致）。用于两件事：
+     * 各导入类型可识别的字段。用于两件事：
      * 1) 当文件首行是表头时，按表头名称定位列（顺序可乱、可多列）；
-     * 2) 当首行不像表头或缺列时，回退按此顺序的列位置读取（兼容旧文件）。
+     * 2) 当首行不像表头或缺列时，回退按此顺序的列位置读取。
+     * mappings 保留旧模板的前 13 列位置，下载模板的新顺序依靠表头匹配。
      */
     private static final Map<String, String[]> SCHEMAS = Map.of(
             "materials", new String[]{"materialCode", "warehouseMaterialCode", "materialName", "spec", "unit", "category"},
-            "mappings", new String[]{"mappingOrder", "lineMaterialCode", "warehouseCode", "boxSize", "quantity", "deliveryType", "warehouseLocation", "deliveryAddress", "remark", "deliveryArea", "warehouseMaterialCode", "singleUnitUsage", "factory"},
+            "mappings", new String[]{"mappingOrder", "lineMaterialCode", "warehouseCode", "boxSize", "quantity", "deliveryType", "warehouseLocation", "deliveryAddress", "remark", "deliveryArea", "warehouseMaterialCode", "singleUnitUsage", "factory", "description"},
             "stationMaterials", new String[]{"lineCode", "stationCode", "stationName", "materialCode", "materialName", "warehouseMaterialCode", "standardBoxQty", "dailyUsage", "triggerQty"},
             "factoryLabels", new String[]{"warehouseCode", "barcodeValue", "primaryScanValue", "materialCode", "materialName", "warehouseMaterialCode", "warehouseAddress", "sendStationAddress", "boxSize", "standardQty", "unit", "deliveryArea", "lineCode", "stationCode", "stationName", "printDate", "bindBox", "boxSide", "containerType", "remark"},
             "siteLabels", new String[]{"areaCode", "kanbanCardNo", "barcodeValue", "projectCode", "routeName", "deliveryAddress", "materialCode", "materialName", "warehouseMaterialCode", "standardQty", "boxSide", "warehouseLocation", "specText", "unit", "printDate", "lineCode", "stationCode", "stationName", "bindBox"},
@@ -88,6 +89,7 @@ public class ImportService {
         m.put("deliveryType", new String[]{"用途", "配送类型", "类型"});
         m.put("warehouseLocation", new String[]{"仓库位置", "仓位", "库位"});
         m.put("deliveryAddress", new String[]{"总装地址", "配送地址", "送货地址", "地址"});
+        m.put("description", new String[]{"描述"});
         m.put("remark", new String[]{"备注", "说明"});
         m.put("deliveryArea", new String[]{"配送区域", "区域", "分区"});
         m.put("singleUnitUsage", new String[]{"单根用量", "单件用量", "单台用量", "单根用量数"});
@@ -596,6 +598,7 @@ public class ImportService {
         m.setDeliveryType(r.str("deliveryType").isBlank() ? inferDeliveryType(m.getMappingOrder()) : r.str("deliveryType"));
         m.setWarehouseLocation(r.str("warehouseLocation"));
         m.setDeliveryAddress(r.str("deliveryAddress"));
+        m.setDescription(r.str("description"));
         m.setRemark(r.str("remark"));
         m.setDeliveryArea(r.str("deliveryArea"));
         m.setSingleUnitUsage(r.numOrNull("singleUnitUsage", "单根用量"));

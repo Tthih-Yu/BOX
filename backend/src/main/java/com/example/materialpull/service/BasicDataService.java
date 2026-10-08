@@ -379,6 +379,7 @@ public class BasicDataService {
         entity.setDeliveryType(deliveryType);
         entity.setWarehouseLocation(blankToNull(entity.getWarehouseLocation()));
         entity.setDeliveryAddress(blankToNull(entity.getDeliveryAddress()));
+        entity.setDescription(blankToNull(entity.getDescription()));
         entity.setDeliveryArea(guard.notBlank(entity.getDeliveryArea(), "配送区域"));
         String factory = guard.notBlank(entity.getFactory(), "工厂");
         if (!Set.of("弋江", "三山").contains(factory)) {
@@ -550,12 +551,29 @@ public class BasicDataService {
         cfg.setConfigKey(guard.notBlank(req.configKey, "参数键"));
         cfg.setConfigName(guard.notBlank(req.configName, "参数名称"));
         cfg.setConfigValue(req.configValue == null ? "" : req.configValue.trim());
+        validateConfigValue(cfg.getConfigKey(), cfg.getConfigValue());
         cfg.setRemark(blankToNull(req.remark));
         cfg.setEditable(req.editable == null || req.editable);
         configRepository.findByConfigKey(cfg.getConfigKey()).ifPresent(old -> {
             if (!Objects.equals(old.getId(), cfg.getId())) throw new BusinessException(ErrorCode.DATA_DIRTY, "参数键已存在：" + cfg.getConfigKey());
         });
         return configRepository.save(cfg);
+    }
+
+    private void validateConfigValue(String key, String value) {
+        if ("task.dedup.enabled".equals(key) || "task.dedup.window-minutes".equals(key)) {
+            throw new BusinessException(ErrorCode.PARAM_ERROR,
+                    "该旧版去重参数已停用，请使用 task.dedup.window-seconds（0=关闭，最小开启值为5秒）");
+        }
+        if ("task.dedup.window-seconds".equals(key)) {
+            try {
+                long seconds = Long.parseLong(value);
+                if (seconds != 0 && seconds < 5) throw new NumberFormatException("must be zero or at least five");
+            } catch (NumberFormatException e) {
+                throw new BusinessException(ErrorCode.PARAM_ERROR,
+                        "补货任务去重时间窗必须为0（关闭）或大于等于5的整数秒数");
+            }
+        }
     }
 
     @Transactional

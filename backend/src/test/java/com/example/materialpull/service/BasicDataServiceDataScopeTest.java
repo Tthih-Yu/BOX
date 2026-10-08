@@ -325,6 +325,49 @@ class BasicDataServiceDataScopeTest {
         verify(userRepository, never()).save(any());
     }
 
+    @Test
+    void dedupWindowRejectsValuesBelowFiveSeconds() {
+        RequestContext.setLoginUser(1L, "root", "全局管理员", UserRole.ADMIN, null, List.of());
+        BasicDataDtos.ConfigRequest req = configRequest("task.dedup.window-seconds", "4");
+
+        assertThrows(BusinessException.class, () -> service.saveConfig(req));
+
+        verify(configRepository, never()).save(any());
+    }
+
+    @Test
+    void dedupDisabledAndFiveSecondWindowCanBeSaved() {
+        RequestContext.setLoginUser(1L, "root", "全局管理员", UserRole.ADMIN, null, List.of());
+        when(configRepository.findByConfigKey(anyString())).thenReturn(Optional.empty());
+        when(configRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+
+        service.saveConfig(configRequest("task.dedup.window-seconds", "0"));
+        service.saveConfig(configRequest("task.dedup.window-seconds", "5"));
+
+        verify(configRepository, times(2)).save(any());
+    }
+
+    @Test
+    void removedDedupKeysCannotBeCreatedAgain() {
+        RequestContext.setLoginUser(1L, "root", "全局管理员", UserRole.ADMIN, null, List.of());
+
+        assertThrows(BusinessException.class,
+                () -> service.saveConfig(configRequest("task.dedup.enabled", "true")));
+        assertThrows(BusinessException.class,
+                () -> service.saveConfig(configRequest("task.dedup.window-minutes", "1")));
+
+        verify(configRepository, never()).save(any());
+    }
+
+    private BasicDataDtos.ConfigRequest configRequest(String key, String value) {
+        BasicDataDtos.ConfigRequest req = new BasicDataDtos.ConfigRequest();
+        req.configKey = key;
+        req.configName = key;
+        req.configValue = value;
+        req.editable = true;
+        return req;
+    }
+
     private BasicDataDtos.UserRequest userRequest(Long id, UserRole role, String factory, List<String> areas) {
         BasicDataDtos.UserRequest req = new BasicDataDtos.UserRequest();
         req.id = id;

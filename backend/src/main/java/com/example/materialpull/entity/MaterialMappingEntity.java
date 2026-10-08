@@ -66,6 +66,7 @@ public class MaterialMappingEntity {
         deliveryType = deliveryType.toUpperCase();
         warehouseLocation = blankToNull(warehouseLocation);
         deliveryAddress = blankToNull(deliveryAddress);
+        description = blankToNull(description);
         deliveryArea = blankToNull(deliveryArea);
         if (quantity == null) quantity = BigDecimal.ZERO;
         if (mappingOrder == null || mappingOrder <= 0) mappingOrder = 1;

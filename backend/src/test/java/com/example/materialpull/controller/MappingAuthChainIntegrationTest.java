@@ -39,6 +39,7 @@ class MappingAuthChainIntegrationTest {
     @Mock BasicDataService service;
     @Mock LogExportService logExportService;
     @Mock com.example.materialpull.service.DataScopeService dataScopeService;
+    @Mock com.example.materialpull.service.MappingQueryService mappingQueryService;
     @Mock AuthTokenService tokenService;
     MockMvc mvc;
 
@@ -46,7 +47,7 @@ class MappingAuthChainIntegrationTest {
     void setUp() {
         BasicDataController controller = new BasicDataController(materialRepository, mappingRepository,
                 stationMaterialRepository, boxRepository, inventoryRepository, configRepository,
-                service, logExportService, dataScopeService);
+                service, logExportService, dataScopeService, mappingQueryService);
         AuthTokenFilter filter = new AuthTokenFilter(tokenService, new SecurityProperties());
         mvc = MockMvcBuilders.standaloneSetup(controller)
                 .addFilters(filter)

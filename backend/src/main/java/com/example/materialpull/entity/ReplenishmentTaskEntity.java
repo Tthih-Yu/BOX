@@ -55,6 +55,8 @@ public class ReplenishmentTaskEntity {
     private String warehouseLocation;
     private String materialCode;
     private String materialName;
+    /** 创建任务时保存的料号映射描述，供浏览器和代理打印保持相同内容。 */
+    private String mappingDescription;
     private String warehouseMaterialCode;
     private String materialImageUrl;
     private BigDecimal requestQty = BigDecimal.ZERO;

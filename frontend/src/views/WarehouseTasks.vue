@@ -48,7 +48,7 @@
         </el-button-group>
         <el-button v-if="canManagePrint" type="warning" plain style="margin-left:12px" @click="openPrintSettings">定时打印设置</el-button>
       </div>
-      <div class="hint">标准流程：接单 → 拣料 → 拣完 → 配送 → 到达 → 完成。点击行前的箭头展开完整字段。同一仓库代号在去重时间窗内重复扫码会被拦截（防手抖/重发）；时间窗可在「系统配置」的 task.dedup.window-minutes 修改，超过该时间再次用空可正常生成新任务。</div>
+      <div class="hint">标准流程：接单 → 拣料 → 拣完 → 配送 → 到达 → 完成。点击行前的箭头展开完整字段。管理员可在「系统参数」通过 task.dedup.window-seconds 设置扫码去重：0=关闭，大于等于5=按秒开启。</div>
     </div>
     <div class="warehouse-task-scope">
       <div class="task-scope-switcher">

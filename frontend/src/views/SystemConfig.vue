@@ -13,7 +13,8 @@
       <el-table-column prop="configName" label="参数名称" width="220" show-overflow-tooltip />
       <el-table-column label="参数值" width="180">
         <template #default="{row}">
-          <el-tag v-if="isBool(row)" :type="boolVal(row) ? 'success' : 'info'">{{ boolVal(row) ? '开启' : '关闭' }}</el-tag>
+          <el-tag v-if="isDedupSeconds(row)" :type="dedupSeconds(row) > 0 ? 'success' : 'info'">{{ dedupDisplay(row) }}</el-tag>
+          <el-tag v-else-if="isBool(row)" :type="boolVal(row) ? 'success' : 'info'">{{ boolVal(row) ? '开启' : '关闭' }}</el-tag>
           <span v-else>{{ displayValue(row) }}</span>
         </template>
       </el-table-column>
@@ -37,6 +38,9 @@
             <el-option label="开启" value="true" />
             <el-option label="关闭" value="false" />
           </el-select>
+          <el-input v-else-if="isDedupSeconds(form)" v-model="form.configValue">
+            <template #append>秒（0关闭，最小开启值5）</template>
+          </el-input>
           <el-input v-else v-model="form.configValue" />
         </el-form-item>
         <el-form-item label="备注"><div class="remark-text">{{ form.remark || '-' }}</div></el-form-item>
@@ -67,6 +71,15 @@ function isBool(row:any){
   return v === 'true' || v === 'false'
 }
 function boolVal(row:any){ return String(row.configValue ?? '').trim().toLowerCase() === 'true' }
+function isDedupSeconds(row:any){ return row?.configKey === 'task.dedup.window-seconds' }
+function dedupSeconds(row:any){
+  const value = Number.parseInt(String(row?.configValue ?? '0'), 10)
+  return Number.isFinite(value) && value >= 5 ? value : 0
+}
+function dedupDisplay(row:any){
+  const seconds = dedupSeconds(row)
+  return seconds > 0 ? `开启（${seconds}秒）` : '关闭（0秒）'
+}
 function displayValue(row:any){ return row.configValue == null || row.configValue === '' ? '（空）' : row.configValue }
 
 const currentRole = computed(() => { try { return JSON.parse(localStorage.getItem('loginUser') || '{}').role || '' } catch { return '' } })
@@ -86,6 +99,15 @@ function openEdit(row:any){
 }
 async function save(){
   if (!canWrite.value) return
+  if (isDedupSeconds(form.value)) {
+    const raw = String(form.value.configValue ?? '').trim()
+    const seconds = Number(raw)
+    if (!/^\d+$/.test(raw) || !Number.isSafeInteger(seconds) || (seconds !== 0 && seconds < 5)) {
+      ElMessage.warning('去重时间窗只能填写0（关闭）或大于等于5的整数秒数')
+      return
+    }
+    form.value.configValue = raw
+  }
   await post('/configs', form.value)
   dialog.value = false
   ElMessage.success('已保存')

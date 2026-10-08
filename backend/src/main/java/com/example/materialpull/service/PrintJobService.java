@@ -283,7 +283,7 @@ public class PrintJobService {
 
     private String payload(PrintJobEntity job, ReplenishmentTaskEntity t) {
         boolean urgent = t.getPriority() == PriorityLevel.URGENT || "URGENT".equalsIgnoreCase(firstNonBlank(t.getDeliveryMode(), "")) || "SPARE".equalsIgnoreCase(firstNonBlank(t.getLabelUsageType(), ""));
-        return "{\"printJobNo\":\"" + esc(job.getPrintJobNo()) + "\",\"factory\":\"" + esc(displayFactory(job.getFactory())) + "\",\"taskNo\":\"" + esc(t.getTaskNo()) + "\",\"labelCode\":\"" + esc(t.getSourceLabelCode()) + "\",\"printType\":\"" + esc(job.getPrintType()) + "\",\"printerName\":\"" + esc(job.getPrinterName()) + "\",\"barcode\":\"" + esc(t.getWarehouseCode()) + "\",\"warehouseCode\":\"" + esc(t.getWarehouseCode()) + "\",\"materialCode\":\"" + esc(t.getMaterialCode()) + "\",\"materialName\":\"" + esc(firstNonBlank(t.getMaterialName(), t.getMaterialCode(), "")) + "\",\"materialImageUrl\":\"" + esc(t.getMaterialImageUrl()) + "\",\"boxSize\":\"" + esc(t.getBoxSize()) + "\",\"qty\":\"" + t.getRequestQty() + "\",\"from\":\"" + esc(firstNonBlank(t.getWarehouseAddress(), t.getWarehouseLocation(), "")) + "\",\"to\":\"" + esc(firstNonBlank(t.getSendStationAddress(), t.getDeliveryAddress(), t.getStationCode())) + "\",\"deliveryArea\":\"" + esc(t.getDeliveryArea()) + "\",\"deliveryMode\":\"" + (urgent ? "URGENT" : "NORMAL") + "\",\"usageType\":\"" + esc(firstNonBlank(t.getLabelUsageType(), urgent ? "SPARE" : "USE")) + "\",\"zpl\":\"" + esc(zpl(t)) + "\"}";
+        return "{\"printJobNo\":\"" + esc(job.getPrintJobNo()) + "\",\"factory\":\"" + esc(displayFactory(job.getFactory())) + "\",\"taskNo\":\"" + esc(t.getTaskNo()) + "\",\"labelCode\":\"" + esc(t.getSourceLabelCode()) + "\",\"printType\":\"" + esc(job.getPrintType()) + "\",\"printerName\":\"" + esc(job.getPrinterName()) + "\",\"barcode\":\"" + esc(t.getWarehouseCode()) + "\",\"warehouseCode\":\"" + esc(t.getWarehouseCode()) + "\",\"materialCode\":\"" + esc(t.getMaterialCode()) + "\",\"materialName\":\"" + esc(firstNonBlank(t.getMaterialName(), t.getMaterialCode(), "")) + "\",\"mappingDescription\":\"" + esc(t.getMappingDescription()) + "\",\"materialImageUrl\":\"" + esc(t.getMaterialImageUrl()) + "\",\"boxSize\":\"" + esc(t.getBoxSize()) + "\",\"qty\":\"" + t.getRequestQty() + "\",\"from\":\"" + esc(firstNonBlank(t.getWarehouseAddress(), t.getWarehouseLocation(), "")) + "\",\"to\":\"" + esc(firstNonBlank(t.getSendStationAddress(), t.getDeliveryAddress(), t.getStationCode())) + "\",\"deliveryArea\":\"" + esc(t.getDeliveryArea()) + "\",\"deliveryMode\":\"" + (urgent ? "URGENT" : "NORMAL") + "\",\"usageType\":\"" + esc(firstNonBlank(t.getLabelUsageType(), urgent ? "SPARE" : "USE")) + "\",\"zpl\":\"" + esc(zpl(t)) + "\"}";
     }
 
     private String zpl(ReplenishmentTaskEntity t) {
@@ -291,14 +291,15 @@ public class PrintJobService {
         String from = firstNonBlank(t.getWarehouseAddress(), t.getWarehouseLocation(), "");
         String barcode = firstNonBlank(t.getWarehouseCode(), t.getBarcodeValue(), "");
         String material = firstNonBlank(t.getMaterialCode(), t.getMaterialName(), "");
-        String boxSize = firstNonBlank(t.getBoxSize(), "");
-        String qty = t.getRequestQty() == null ? "" : t.getRequestQty().stripTrailingZeros().toPlainString();
+        String boxSize = firstNonBlank(t.getBoxSize(), "-");
+        String qty = t.getRequestQty() == null ? "-" : t.getRequestQty().stripTrailingZeros().toPlainString();
+        String description = firstNonBlank(t.getMappingDescription(), "-");
         String deliveryArea = firstNonBlank(t.getDeliveryArea(), "");
         boolean urgent = t.getPriority() == PriorityLevel.URGENT || "URGENT".equalsIgnoreCase(firstNonBlank(t.getDeliveryMode(), "")) || "SPARE".equalsIgnoreCase(firstNonBlank(t.getLabelUsageType(), ""));
 
         // 实际画布点数 = 物理尺寸(mm) × dpi/25.4。所有坐标按参考画布(640×400)等比缩放，
         // 从而适配任意 dpi(203/300...)与标签尺寸，避免 300dpi 打印机上排版被放大溢出。
-        // 横版 80×50mm@203dpi ≈ 640×400 点：上=用途条+条码，中=三栏(物料/仓库/工位)，下=四栏(盒子/数量/配送区域/任务号)。
+        // 横版 80×50mm@203dpi ≈ 640×400 点：上=用途条+条码，中=三栏(物料/仓库/工位)，下=四栏(盒子与数量/描述/配送区域/任务号)。
         LabelGeometry g = labelGeometry();
         double sx = g.widthDots / REF_W;   // 横向缩放比
         double sy = g.heightDots / REF_H;  // 纵向缩放比
@@ -341,17 +342,17 @@ public class PrintJobService {
         box(zpl, 8, 140, 624, 0, 2, sx, sy);       // 上分隔线
         box(zpl, 216, 140, 0, 122, 2, sx, sy);     // 竖分隔
         box(zpl, 424, 140, 0, 122, 2, sx, sy);
-        appendCol(zpl, 20, 152, "物料名称", material, 188, 40, 2, sx, sy);
+        appendCol(zpl, 20, 152, "物料号", material, 188, 40, 2, sx, sy);
         appendCol(zpl, 228, 152, "仓库地址", from, 188, 40, 2, sx, sy);
         appendCol(zpl, 436, 152, "发送工位地址", to, 188, 36, 2, sx, sy);
 
-        // ===== 底部带(y 262..392)：四栏 盒子大小/数量/配送区域/任务号 =====
+        // ===== 底部带(y 262..392)：四栏 盒子与数量/描述/配送区域/任务号 =====
         box(zpl, 8, 262, 624, 0, 2, sx, sy);       // 上分隔线
         box(zpl, 164, 262, 0, 130, 2, sx, sy);     // 竖分隔
         box(zpl, 320, 262, 0, 130, 2, sx, sy);
         box(zpl, 476, 262, 0, 130, 2, sx, sy);
-        appendCol(zpl, 20, 276, "盒子大小", boxSize, 140, 44, 1, sx, sy);
-        appendCol(zpl, 176, 276, "数量", qty, 140, 44, 1, sx, sy);
+        appendCol(zpl, 20, 276, "盒子 / 数量", boxSize + " | " + qty, 140, 24, 2, sx, sy);
+        appendCol(zpl, 176, 276, "描述", description, 140, 26, 2, sx, sy);
         appendCol(zpl, 332, 276, "配送区域", deliveryArea, 140, 32, 2, sx, sy);
         appendCol(zpl, 488, 276, "任务号", firstNonBlank(t.getTaskNo(), ""), 140, 20, 3, sx, sy);
 
